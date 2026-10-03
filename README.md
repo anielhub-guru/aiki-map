@@ -1,62 +1,69 @@
 # Aiki Map
 
-Aiki Map is a read-only terminal tool that generates an interactive
-treemap of a local repository. It highlights files changed by each of the latest
-10 commits and shows where those files sit within the committed repository structure.
+See what changed in your AI-assisted coding workflow—at a glance.
 
-## What it does
+AI coding tools can modify more of a repository than you expected. Aiki Map turns
+recent Git commits into an interactive visual map, making it easier to spot which
+files changed and where they sit in the project before you continue building.
 
-- Reads the latest 10 committed snapshots through the Git CLI
-- Compares each commit with its first parent
-- Distinguishes added, modified, deleted, renamed, and unchanged files
-- Navigates backward and forward through the loaded commits
-- Excludes common dependency, build, cache, and editor directories
-- Generates a self-contained `visualizer.html` in a temporary directory
-- Opens the visualization in the default browser
+## What the map shows
 
-## What it does not do
+- Each rectangle represents a tracked file.
+- Folder size reflects the number of files it contains—not lines of code or complexity.
+- Changed folders are highlighted so you can locate affected areas quickly.
+- Older and newer controls let you inspect up to 10 recent commits.
 
-- Modify repository files or Git state
-- Stage, commit, switch, reset, or restore anything
-- Display source code or code diffs
-- Run a web server or contact an external service
-- Include untracked or ignored files
-- Load more than 10 commits or watch for new commits
+| Colour | Meaning |
+| --- | --- |
+| Cool grey | Unchanged |
+| Pale lavender | Folder contains changes |
+| Muted teal | Added |
+| Amber | Modified |
+| Coral | Deleted |
+| Indigo | Renamed |
 
-## Requirements
+## Quick start
 
-- Python 3.10 or newer
-- Git available on the command line
-
-Install the Python dependency:
+You need Python 3.10 or newer and Git on your command line.
 
 ```bash
+git clone https://github.com/anielhub-guru/aiki-map.git
+cd aiki-map
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
 python visualizer.py /path/to/repository
 ```
 
-Generate the file without opening a browser:
+Aiki Map creates `visualizer.html` in a temporary directory, prints its location
+and generation time, then opens it in your default browser.
+
+To generate the file without opening a browser:
 
 ```bash
 python visualizer.py /path/to/repository --no-open
 ```
 
-The command prints the temporary path containing `visualizer.html`. The
-operating system may remove that directory during later temporary-file cleanup.
-It also prints the number of embedded commits, generation time, and HTML size.
+## Read-only by design
 
-## Read-only Git commands
+Aiki Map observes committed Git history without modifying the repository it
+inspects. It does not stage files, create commits, switch branches, restore files,
+or change Git configuration. The generated HTML is written outside the inspected
+repository and works without a server or external service.
 
-The implementation permits only these observational Git commands:
+## How it works
 
-- `git rev-parse`
-- `git rev-list`
-- `git log`
-- `git ls-tree`
-- `git show`
-- `git diff-tree`
+1. Read metadata for the latest 10 commits.
+2. Compare each commit with its first parent.
+3. Build the repository hierarchy from tracked files.
+4. Mark added, modified, deleted, and renamed paths.
+5. Embed the commit snapshots in one standalone interactive HTML file.
+
+Common dependency, build, cache, and editor directories are filtered from the map
+so that application structure remains visible.
+
+## Current scope
+
+The current MVP visualizes committed history. It does not yet show uncommitted
+working changes or line-by-line code differences. A working-changes view is being
+evaluated for a later iteration.

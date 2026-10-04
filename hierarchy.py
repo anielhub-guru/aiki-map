@@ -44,6 +44,7 @@ class HierarchyNode:
     value: int
     path: str
     previous_path: str | None = None
+    detail: str = ""
 
 
 def build_hierarchy(
@@ -60,8 +61,9 @@ def build_hierarchy(
     }
 
     for change in changes_by_path.values():
-        if change.status == "D":
-            file_paths.add(_validate_git_path(change.path))
+        file_paths.add(_validate_git_path(change.path))
+        if change.previous_path and change.status in {"R", "C"}:
+            file_paths.discard(_validate_git_path(change.previous_path))
 
     folder_paths: set[str] = set()
     for file_path in file_paths:
@@ -131,6 +133,7 @@ def _build_file(file_path: str, change: FileChange | None) -> HierarchyNode:
         value=1,
         path=file_path,
         previous_path=change.previous_path if change else None,
+        detail=change.detail if change else "",
     )
 
 

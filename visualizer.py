@@ -1,4 +1,4 @@
-"""Generate a read-only visual map of a repository's latest commit."""
+"""Generate a read-only visual map of working changes and recent commits."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from git_reader import (
     get_changes_for_commit,
     get_recent_commits,
     get_tracked_files,
+    get_working_changes,
     validate_repository,
 )
 from hierarchy import build_hierarchy
@@ -25,7 +26,7 @@ COMMIT_LIMIT = 10
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Visualize recent repository commits as interactive treemaps."
+        description="Visualize working changes and recent commits as interactive treemaps."
     )
     parser.add_argument("repository", help="Path to a local Git working repository")
     parser.add_argument(
@@ -43,9 +44,28 @@ def main() -> int:
         started_at = perf_counter()
         repository = validate_repository(arguments.repository)
         commits = get_recent_commits(repository, limit=COMMIT_LIMIT)
-        snapshots = []
+        head_commit = commits[0]
+        head_files = get_tracked_files(repository, head_commit.full_hash)
+        working_changes = get_working_changes(repository)
+        working_nodes = build_hierarchy(repository.name, head_files, working_changes)
+        working_change_count = sum(
+            node.kind == "file" and node.status != "unchanged"
+            for node in working_nodes
+        )
+        snapshots = [
+            VisualizationSnapshot(
+                commit=head_commit,
+                nodes=working_nodes,
+                kind="working",
+                change_count=working_change_count,
+            )
+        ]
         for commit in commits:
-            tracked_files = get_tracked_files(repository, commit.full_hash)
+            tracked_files = (
+                head_files
+                if commit.full_hash == head_commit.full_hash
+                else get_tracked_files(repository, commit.full_hash)
+            )
             changes = get_changes_for_commit(repository, commit.full_hash)
             snapshots.append(
                 VisualizationSnapshot(
@@ -64,7 +84,8 @@ def main() -> int:
 
     print(output_path)
     print(
-        f"{len(snapshots)} commits | {elapsed_seconds:.2f}s | "
+        f"{working_change_count} working changes | {len(commits)} commits | "
+        f"{elapsed_seconds:.2f}s | "
         f"{output_path.stat().st_size / 1_000_000:.1f} MB"
     )
     if not arguments.no_open:

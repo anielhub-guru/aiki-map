@@ -3,8 +3,9 @@
 See what changed in your AI-assisted coding workflow—at a glance.
 
 AI coding tools can modify more of a repository than you expected. Aiki Map turns
-recent Git commits into an interactive visual map, making it easier to spot which
-files changed and where they sit in the project before you continue building.
+your current working changes and recent Git commits into an interactive visual
+map, making it easier to spot which files changed and where they sit in the
+project before you continue building.
 
 ![Aiki Map visualizing a modified file in a mock repository](docs/aiki-map-demo.png)
 
@@ -12,8 +13,9 @@ files changed and where they sit in the project before you continue building.
 
 - Each rectangle represents a tracked file.
 - Folder size reflects the number of files it contains—not lines of code or complexity.
+- Working Changes opens first and includes staged, unstaged, and untracked files.
 - Changed folders are highlighted so you can locate affected areas quickly.
-- Older and newer controls let you inspect up to 10 recent commits.
+- Commit History lets you inspect up to 10 recent commits.
 
 | Colour | Meaning |
 | --- | --- |
@@ -48,24 +50,24 @@ python visualizer.py /path/to/repository --no-open
 
 ## Read-only by design
 
-Aiki Map observes committed Git history without modifying the repository it
-inspects. It does not stage files, create commits, switch branches, restore files,
-or change Git configuration. The generated HTML is written outside the inspected
-repository and works without a server or external service.
+Aiki Map observes the working tree and committed Git history without modifying the
+repository it inspects. It does not stage files, create commits, switch branches,
+restore files, or change Git configuration. The generated HTML is written outside
+the inspected repository and works without a server or external service.
 
 ## How it works
 
-1. Read metadata for the latest 10 commits.
-2. Compare each commit with its first parent.
-3. Build the repository hierarchy from tracked files.
+1. Read the current staged, unstaged, and untracked file states.
+2. Read metadata for the latest 10 commits.
+3. Build the repository hierarchy from tracked files and current additions.
 4. Mark added, modified, deleted, and renamed paths.
-5. Embed the commit snapshots in one standalone interactive HTML file.
+5. Embed the working view and commit snapshots in one standalone interactive HTML file.
 
 Common dependency, build, cache, and editor directories are filtered from the map
 so that application structure remains visible.
 
 ## Current scope
 
-The current MVP visualizes committed history. It does not yet show uncommitted
-working changes or line-by-line code differences. A working-changes view is being
-evaluated for a later iteration.
+The current MVP combines all working changes in one map and keeps committed
+history as a secondary view. It does not show line-by-line code differences or
+connect a change to the AI instruction that caused it.

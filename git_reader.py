@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import subprocess
 
@@ -14,6 +15,7 @@ READ_ONLY_COMMANDS = {
     "rev-list",
     "rev-parse",
     "show",
+    "status",
 }
 
 
@@ -35,17 +37,21 @@ class FileChange:
     status: str
     path: str
     previous_path: str | None = None
+    detail: str = ""
 
 
 def _run_git(repository: Path, *arguments: str) -> str:
     if not arguments or arguments[0] not in READ_ONLY_COMMANDS:
         raise ValueError("Only approved read-only Git commands may be used")
 
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
         ["git", "-C", str(repository), *arguments],
         capture_output=True,
         text=True,
         check=False,
+        env=environment,
     )
     if result.returncode != 0:
         message = result.stderr.strip() or "Git command failed"
@@ -118,6 +124,18 @@ def get_latest_changes(repository: Path) -> list[FileChange]:
     return get_changes_for_commit(repository, "HEAD")
 
 
+def get_working_changes(repository: Path) -> list[FileChange]:
+    output = _run_git(
+        repository,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--renames",
+    )
+    return _parse_working_status(output)
+
+
 def get_changes_for_commit(repository: Path, revision: str) -> list[FileChange]:
     commit_and_parents = _run_git(
         repository, "rev-list", "--parents", "-n", "1", revision
@@ -176,3 +194,70 @@ def _parse_name_status(output: str) -> list[FileChange]:
         index += 1
 
     return changes
+
+
+def _parse_working_status(output: str) -> list[FileChange]:
+    fields = output.split("\0")
+    changes: list[FileChange] = []
+    index = 0
+
+    while index < len(fields):
+        record = fields[index]
+        index += 1
+        if not record:
+            continue
+        if len(record) < 4 or record[2] != " ":
+            raise GitRepositoryError("Could not parse working-tree status")
+
+        code = record[:2]
+        path = record[3:]
+        previous_path = None
+        if "R" in code or "C" in code:
+            if index >= len(fields) or not fields[index]:
+                raise GitRepositoryError("Could not parse a working-tree rename")
+            previous_path = fields[index]
+            index += 1
+
+        changes.append(
+            FileChange(
+                status=_working_change_status(code),
+                path=path,
+                previous_path=previous_path,
+                detail=_working_change_detail(code),
+            )
+        )
+
+    return changes
+
+
+def _working_change_status(code: str) -> str:
+    if code == "??":
+        return "A"
+    for status in ("D", "R", "C", "A", "M", "T", "U"):
+        if status in code:
+            return "M" if status == "U" else status
+    return "M"
+
+
+def _working_change_detail(code: str) -> str:
+    if code == "??":
+        return "Untracked"
+
+    labels = []
+    if code[0] != " ":
+        labels.append(f"Staged {_status_description(code[0])}")
+    if code[1] != " ":
+        labels.append(f"Unstaged {_status_description(code[1])}")
+    return " + ".join(labels)
+
+
+def _status_description(status: str) -> str:
+    return {
+        "A": "addition",
+        "C": "copy",
+        "D": "deletion",
+        "M": "modification",
+        "R": "rename",
+        "T": "type change",
+        "U": "unmerged change",
+    }.get(status, "change")

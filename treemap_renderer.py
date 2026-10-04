@@ -53,12 +53,15 @@ class TreemapData:
     paths: list[str]
     statuses: list[str]
     previous_paths: list[str]
+    details: list[str]
 
 
 @dataclass(frozen=True)
 class VisualizationSnapshot:
     commit: CommitInfo
     nodes: list[HierarchyNode]
+    kind: str = "commit"
+    change_count: int = 0
 
 
 def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
@@ -75,6 +78,7 @@ def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
         paths=[node.path or node.label for node in node_list],
         statuses=[node.status for node in node_list],
         previous_paths=[node.previous_path or "" for node in node_list],
+        details=[node.detail for node in node_list],
     )
 
 
@@ -119,6 +123,7 @@ def _treemap_trace(
         f"Previous path: {path}" if path else ""
         for path in data.previous_paths
     ]
+    change_details = [f"State: {detail}" if detail else "" for detail in data.details]
     return go.Treemap(
         ids=data.ids,
         labels=data.labels,
@@ -134,17 +139,28 @@ def _treemap_trace(
         },
         pathbar={"visible": True, "thickness": 34, "textfont": {"size": 14}},
         customdata=list(
-            zip(data.paths, data.statuses, previous_path_details, strict=True)
+            zip(
+                data.paths,
+                data.statuses,
+                previous_path_details,
+                change_details,
+                strict=True,
+            )
         ),
         hovertemplate=(
             "<b>%{label}</b><br>"
             "Path: %{customdata[0]}<br>"
             "Status: %{customdata[1]}<br>"
-            "%{customdata[2]}"
+            "%{customdata[2]}<br>"
+            "%{customdata[3]}"
             "<extra></extra>"
         ),
         textinfo="label",
-        name=snapshot.commit.short_hash,
+        name=(
+            "Working Changes"
+            if snapshot.kind == "working"
+            else snapshot.commit.short_hash
+        ),
         visible=visible,
     )
 
@@ -153,18 +169,9 @@ def _html_document(
     plot_html: str,
     snapshots: list[VisualizationSnapshot],
 ) -> str:
-    first = snapshots[0].commit
-    commit_payload = json.dumps(
-        [
-            {
-                "hash": snapshot.commit.short_hash,
-                "message": snapshot.commit.message,
-                "author": snapshot.commit.author,
-                "date": _display_date(snapshot.commit.authored_at),
-            }
-            for snapshot in snapshots
-        ]
-    ).replace("</", "<\\/")
+    payload = _snapshot_payload(snapshots)
+    first = payload[0]
+    snapshot_payload = json.dumps(payload).replace("</", "<\\/")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -183,10 +190,13 @@ def _html_document(
     .commit-line {{ font-size: 18px; line-height: 1.4; }}
     .commit-line code {{ font-size: 15px; }}
     .commit-byline {{ margin-top: 4px; color: #475569; font-size: 15px; }}
-    .commit-nav {{ display: flex; gap: 12px; flex: 0 0 auto; }}
-    .commit-nav button {{ min-height: 46px; padding: 0 22px; border: 1px solid #CBD5E1; border-radius: 10px; background: #FFFFFF; color: #172033; font-size: 16px; font-weight: 700; cursor: pointer; }}
-    .commit-nav button:hover:not(:disabled) {{ border-color: #596FA8; background: #F1F5F9; }}
-    .commit-nav button:disabled {{ cursor: not-allowed; opacity: .42; }}
+    .header-actions {{ display: flex; flex-direction: column; align-items: end; gap: 12px; flex: 0 0 auto; }}
+    .view-switch, .commit-nav {{ display: flex; gap: 10px; }}
+    .header-actions button {{ min-height: 46px; padding: 0 22px; border: 1px solid #CBD5E1; border-radius: 10px; background: #FFFFFF; color: #172033; font-size: 16px; font-weight: 700; cursor: pointer; }}
+    .header-actions button:hover:not(:disabled) {{ border-color: #596FA8; background: #F1F5F9; }}
+    .header-actions button.active {{ border-color: #172033; background: #172033; color: #FFFFFF; }}
+    .header-actions button:disabled {{ cursor: not-allowed; opacity: .42; }}
+    .commit-nav[hidden] {{ display: none; }}
     .legend {{ display: flex; flex-wrap: wrap; gap: 14px 30px; margin: 22px 0 18px; padding: 14px 16px; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
     .legend-item {{ display: inline-flex; align-items: center; gap: 9px; color: #334155; font-size: 14px; white-space: nowrap; }}
     .legend-swatch {{ width: 18px; height: 18px; border: 1px solid #CBD5E1; border-radius: 4px; }}
@@ -195,8 +205,9 @@ def _html_document(
     @media (max-width: 760px) {{
       .page {{ padding: 20px 16px 16px; }}
       .header {{ align-items: stretch; flex-direction: column; }}
-      .commit-nav {{ width: 100%; }}
-      .commit-nav button {{ flex: 1; }}
+      .header-actions {{ align-items: stretch; }}
+      .view-switch, .commit-nav {{ width: 100%; }}
+      .header-actions button {{ flex: 1; }}
       .legend {{ gap: 12px 20px; }}
       .chart-shell {{ height: calc(100vh - 340px); min-height: 420px; }}
     }}
@@ -207,14 +218,20 @@ def _html_document(
     <header class="header">
       <div>
         <h1>Aiki Map</h1>
-        <div class="eyebrow">Commit <span id="commit-position">1 of {len(snapshots)}</span></div>
-        <div class="commit-line"><code id="commit-hash">{escape(first.short_hash)}</code> — <strong id="commit-message">{escape(first.message)}</strong></div>
-        <div class="commit-byline"><span id="commit-author">{escape(first.author)}</span> — <span id="commit-date">{escape(_display_date(first.authored_at))}</span></div>
+        <div class="eyebrow" id="view-label">{escape(first["label"])}</div>
+        <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
+        <div class="commit-byline" id="snapshot-detail">{escape(first["detail"])}</div>
       </div>
-      <nav class="commit-nav" aria-label="Commit history">
-        <button id="older-commit" type="button">← Older commit</button>
-        <button id="newer-commit" type="button" disabled>Newer commit →</button>
-      </nav>
+      <div class="header-actions">
+        <nav class="view-switch" aria-label="Visualization view">
+          <button class="active" id="working-view" type="button">Working Changes</button>
+          <button id="history-view" type="button">Commit History</button>
+        </nav>
+        <nav class="commit-nav" id="commit-nav" aria-label="Commit history" hidden>
+          <button id="older-commit" type="button">← Older commit</button>
+          <button id="newer-commit" type="button" disabled>Newer commit →</button>
+        </nav>
+      </div>
     </header>
     <section class="legend" aria-label="Change status legend">
       {_legend_html()}
@@ -224,30 +241,42 @@ def _html_document(
     </section>
   </main>
   <script>
-    const commits = {commit_payload};
+    const snapshots = {snapshot_payload};
     const graph = document.getElementById("aiki-map");
+    const workingButton = document.getElementById("working-view");
+    const historyButton = document.getElementById("history-view");
+    const commitNavigation = document.getElementById("commit-nav");
     const newerButton = document.getElementById("newer-commit");
     const olderButton = document.getElementById("older-commit");
-    let currentCommit = 0;
+    const historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
+    const historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
+    let currentHistoryIndex = 0;
 
-    function showCommit(index) {{
-      if (index < 0 || index >= commits.length) return;
-      const visible = commits.map((_, traceIndex) => traceIndex === index);
+    function showSnapshot(index) {{
+      if (index < 0 || index >= snapshots.length) return;
+      const visible = snapshots.map((_, traceIndex) => traceIndex === index);
       Plotly.restyle(graph, {{ visible }});
-      currentCommit = index;
-      const commit = commits[index];
-      document.getElementById("commit-position").textContent = `${{index + 1}} of ${{commits.length}}`;
-      document.getElementById("commit-hash").textContent = commit.hash;
-      document.getElementById("commit-message").textContent = commit.message;
-      document.getElementById("commit-author").textContent = commit.author;
-      document.getElementById("commit-date").textContent = commit.date;
-      newerButton.disabled = index === 0;
-      olderButton.disabled = index === commits.length - 1;
+      const snapshot = snapshots[index];
+      document.getElementById("view-label").textContent = snapshot.label;
+      document.getElementById("snapshot-key").textContent = snapshot.key;
+      document.getElementById("snapshot-message").textContent = snapshot.message;
+      document.getElementById("snapshot-detail").textContent = snapshot.detail;
+      const isWorking = snapshot.kind === "working";
+      workingButton.classList.toggle("active", isWorking);
+      historyButton.classList.toggle("active", !isWorking);
+      commitNavigation.hidden = isWorking;
+      if (!isWorking) {{
+        currentHistoryIndex = snapshot.historyIndex;
+        newerButton.disabled = currentHistoryIndex === 0;
+        olderButton.disabled = currentHistoryIndex === historyCount - 1;
+      }}
       Plotly.Plots.resize(graph);
     }}
 
-    newerButton.addEventListener("click", () => showCommit(currentCommit - 1));
-    olderButton.addEventListener("click", () => showCommit(currentCommit + 1));
+    workingButton.addEventListener("click", () => showSnapshot(0));
+    historyButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex));
+    newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
+    olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));
   </script>
 </body>
 </html>
@@ -260,6 +289,50 @@ def _display_date(authored_at: str) -> str:
     except ValueError:
         return authored_at
     return f"{value.day} {value.strftime('%B %Y')}"
+
+
+def _snapshot_payload(
+    snapshots: list[VisualizationSnapshot],
+) -> list[dict[str, object]]:
+    history_count = sum(snapshot.kind == "commit" for snapshot in snapshots)
+    history_index = 0
+    payload = []
+
+    for snapshot in snapshots:
+        if snapshot.kind == "working":
+            count = snapshot.change_count
+            payload.append(
+                {
+                    "kind": "working",
+                    "historyIndex": -1,
+                    "label": "Working changes",
+                    "key": "Working tree clean" if count == 0 else f"{count} file{'s' if count != 1 else ''}",
+                    "message": (
+                        f"No local changes since {snapshot.commit.short_hash}"
+                        if count == 0
+                        else f"changed since {snapshot.commit.short_hash}"
+                    ),
+                    "detail": "Staged, unstaged, and untracked changes",
+                }
+            )
+            continue
+
+        payload.append(
+            {
+                "kind": "commit",
+                "historyIndex": history_index,
+                "label": f"Commit {history_index + 1} of {history_count}",
+                "key": snapshot.commit.short_hash,
+                "message": snapshot.commit.message,
+                "detail": (
+                    f"{snapshot.commit.author} — "
+                    f"{_display_date(snapshot.commit.authored_at)}"
+                ),
+            }
+        )
+        history_index += 1
+
+    return payload
 
 
 def _legend_html() -> str:

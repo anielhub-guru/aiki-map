@@ -6,6 +6,8 @@ AI coding tools can modify more of a repository than you expected. Aiki Map turn
 recent Git commits into an interactive visual map, making it easier to spot which
 files changed and where they sit in the project before you continue building.
 
+![Aiki Map visualizing a modified file in a mock repository](docs/aiki-map-demo.png)
+
 ## What the map shows
 
 - Each rectangle represents a tracked file.

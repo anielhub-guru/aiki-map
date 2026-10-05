@@ -39,29 +39,38 @@ python -m pip install -r requirements.txt
 python visualizer.py /path/to/repository
 ```
 
-Aiki Map creates `visualizer.html` in a temporary directory, prints its location
-and generation time, then opens it in your default browser.
+Aiki Map starts a local server, prints its address, and opens it in your default
+browser. Keep the terminal command running while you use the map. Working changes
+refresh every 2.5 seconds, and the browser redraws only when the visual state has
+changed. Press `Ctrl+C` to stop it.
 
-To generate the file without opening a browser:
+To start the server without opening a browser automatically:
 
 ```bash
 python visualizer.py /path/to/repository --no-open
+```
+
+To generate the original standalone file instead of running live mode:
+
+```bash
+python visualizer.py /path/to/repository --static
 ```
 
 ## Read-only by design
 
 Aiki Map observes the working tree and committed Git history without modifying the
 repository it inspects. It does not stage files, create commits, switch branches,
-restore files, or change Git configuration. The generated HTML is written outside
-the inspected repository and works without a server or external service.
+restore files, or change Git configuration. Live mode binds only to `127.0.0.1`,
+so repository data remains on the local computer.
 
 ## How it works
 
 1. Read the current staged, unstaged, and untracked file states.
-2. Read metadata for the latest 10 commits.
+2. Read and cache metadata for the latest 10 commits.
 3. Build the repository hierarchy from tracked files and current additions.
-4. Mark added, modified, deleted, and renamed paths.
-5. Embed the working view and commit snapshots in one standalone interactive HTML file.
+4. Check the working state every 2.5 seconds through a local endpoint.
+5. Return no map data when the visual state is unchanged.
+6. Redraw the working map when added, modified, deleted, or renamed paths change.
 
 Common dependency, build, cache, and editor directories are filtered from the map
 so that application structure remains visible.
@@ -69,5 +78,6 @@ so that application structure remains visible.
 ## Current scope
 
 The current MVP combines all working changes in one map and keeps committed
-history as a secondary view. It does not show line-by-line code differences or
-connect a change to the AI instruction that caused it.
+history as a secondary view. It does not animate treemap geometry, show
+line-by-line code differences, or connect a change to the AI instruction that
+caused it.

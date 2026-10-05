@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 from html import escape
 import json
 from pathlib import Path
@@ -85,8 +86,20 @@ def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
 def write_visualization(
     snapshots: Iterable[VisualizationSnapshot],
     output_path: Path,
+    live_updates: bool = False,
 ) -> None:
     """Write commit snapshots to a self-contained interactive HTML file."""
+    output_path.write_text(
+        render_visualization(snapshots, live_updates=live_updates),
+        encoding="utf-8",
+    )
+
+
+def render_visualization(
+    snapshots: Iterable[VisualizationSnapshot],
+    live_updates: bool = False,
+) -> str:
+    """Return a self-contained visualization document."""
     snapshot_list = list(snapshots)
     if not snapshot_list:
         raise ValueError("At least one commit snapshot is required")
@@ -97,7 +110,7 @@ def write_visualization(
 
     figure.update_layout(
         autosize=True,
-        margin={"t": 8, "r": 8, "b": 8, "l": 8},
+        margin={"t": 42, "r": 8, "b": 8, "l": 8},
         paper_bgcolor="#F8FAFC",
         font={"family": "Arial, sans-serif", "color": "#0F172A"},
         showlegend=False,
@@ -108,10 +121,48 @@ def write_visualization(
         div_id="aiki-map",
         config={"displaylogo": False, "responsive": True},
     )
-    output_path.write_text(
-        _html_document(plot_html, snapshot_list),
-        encoding="utf-8",
+    return _html_document(
+        plot_html,
+        snapshot_list,
+        live_updates=live_updates,
+        initial_version=visualization_version(snapshot_list),
     )
+
+
+def visualization_payload(
+    snapshots: Iterable[VisualizationSnapshot],
+) -> dict[str, object]:
+    """Return replacement traces and metadata for a live browser update."""
+    snapshot_list = list(snapshots)
+    return {
+        "version": visualization_version(snapshot_list),
+        "snapshots": _snapshot_payload(snapshot_list),
+        "traces": [
+            _treemap_trace(snapshot, visible=index == 0).to_plotly_json()
+            for index, snapshot in enumerate(snapshot_list)
+        ],
+    }
+
+
+def visualization_version(snapshots: Iterable[VisualizationSnapshot]) -> str:
+    """Return a stable fingerprint for visually meaningful repository state."""
+    snapshot_list = list(snapshots)
+    working = snapshot_list[0]
+    state = {
+        "commits": [snapshot.commit.full_hash for snapshot in snapshot_list[1:]],
+        "working": [
+            (
+                node.node_id,
+                node.parent_id,
+                node.status,
+                node.previous_path,
+                node.detail,
+            )
+            for node in working.nodes
+        ],
+    }
+    encoded = json.dumps(state, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _treemap_trace(
@@ -168,10 +219,14 @@ def _treemap_trace(
 def _html_document(
     plot_html: str,
     snapshots: list[VisualizationSnapshot],
+    live_updates: bool,
+    initial_version: str,
 ) -> str:
     payload = _snapshot_payload(snapshots)
     first = payload[0]
     snapshot_payload = json.dumps(payload).replace("</", "<\\/")
+    live_updates_json = json.dumps(live_updates)
+    version_json = json.dumps(initial_version)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -190,10 +245,12 @@ def _html_document(
     .commit-line {{ font-size: 18px; line-height: 1.4; }}
     .commit-line code {{ font-size: 15px; }}
     .commit-byline {{ margin-top: 4px; color: #475569; font-size: 15px; }}
+    .live-status {{ display: inline-block; margin-top: 6px; color: #9F3A44; font-size: 13px; font-weight: 700; }}
+    .live-status[hidden] {{ display: none; }}
     .header-actions {{ display: flex; flex-direction: column; align-items: end; gap: 12px; flex: 0 0 auto; }}
     .view-switch, .commit-nav {{ display: flex; gap: 10px; }}
     .header-actions button {{ min-height: 46px; padding: 0 22px; border: 1px solid #CBD5E1; border-radius: 10px; background: #FFFFFF; color: #172033; font-size: 16px; font-weight: 700; cursor: pointer; }}
-    .header-actions button:hover:not(:disabled) {{ border-color: #596FA8; background: #F1F5F9; }}
+    .header-actions button:hover:not(:disabled):not(.active) {{ border-color: #596FA8; background: #F1F5F9; }}
     .header-actions button.active {{ border-color: #172033; background: #172033; color: #FFFFFF; }}
     .header-actions button:disabled {{ cursor: not-allowed; opacity: .42; }}
     .commit-nav[hidden] {{ display: none; }}
@@ -220,7 +277,8 @@ def _html_document(
         <h1>Aiki Map</h1>
         <div class="eyebrow" id="view-label">{escape(first["label"])}</div>
         <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
-        <div class="commit-byline" id="snapshot-detail">{escape(first["detail"])}</div>
+        <div class="commit-byline" id="snapshot-detail" hidden></div>
+        <div class="live-status" id="live-status" role="status" hidden></div>
       </div>
       <div class="header-actions">
         <nav class="view-switch" aria-label="Visualization view">
@@ -241,26 +299,29 @@ def _html_document(
     </section>
   </main>
   <script>
-    const snapshots = {snapshot_payload};
+    let snapshots = {snapshot_payload};
     const graph = document.getElementById("aiki-map");
     const workingButton = document.getElementById("working-view");
     const historyButton = document.getElementById("history-view");
     const commitNavigation = document.getElementById("commit-nav");
     const newerButton = document.getElementById("newer-commit");
     const olderButton = document.getElementById("older-commit");
-    const historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
-    const historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
+    const liveStatus = document.getElementById("live-status");
+    const liveUpdates = {live_updates_json};
+    let stateVersion = {version_json};
+    let historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
+    let historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
     let currentHistoryIndex = 0;
+    let refreshInProgress = false;
 
-    function showSnapshot(index) {{
-      if (index < 0 || index >= snapshots.length) return;
-      const visible = snapshots.map((_, traceIndex) => traceIndex === index);
-      Plotly.restyle(graph, {{ visible }});
+    function updateSnapshotMetadata(index) {{
       const snapshot = snapshots[index];
       document.getElementById("view-label").textContent = snapshot.label;
       document.getElementById("snapshot-key").textContent = snapshot.key;
       document.getElementById("snapshot-message").textContent = snapshot.message;
-      document.getElementById("snapshot-detail").textContent = snapshot.detail;
+      const detail = document.getElementById("snapshot-detail");
+      detail.textContent = snapshot.detail;
+      detail.hidden = !snapshot.detail;
       const isWorking = snapshot.kind === "working";
       workingButton.classList.toggle("active", isWorking);
       historyButton.classList.toggle("active", !isWorking);
@@ -270,13 +331,65 @@ def _html_document(
         newerButton.disabled = currentHistoryIndex === 0;
         olderButton.disabled = currentHistoryIndex === historyCount - 1;
       }}
+    }}
+
+    function showSnapshot(index) {{
+      if (index < 0 || index >= snapshots.length) return;
+      const visible = snapshots.map((_, traceIndex) => traceIndex === index);
+      Plotly.restyle(graph, {{ visible }});
+      updateSnapshotMetadata(index);
       Plotly.Plots.resize(graph);
+    }}
+
+    async function refreshState() {{
+      if (!liveUpdates || refreshInProgress) return;
+      refreshInProgress = true;
+      try {{
+        const response = await fetch(`/api/state?version=${{encodeURIComponent(stateVersion)}}`, {{ cache: "no-store" }});
+        if (response.status === 304) {{
+          liveStatus.hidden = true;
+          return;
+        }}
+        if (!response.ok) throw new Error(`Refresh failed (${{response.status}})`);
+
+        const showingWorking = workingButton.classList.contains("active");
+        const selectedCommit = showingWorking
+          ? null
+          : snapshots[historyStart + currentHistoryIndex]?.key;
+        const payload = await response.json();
+        snapshots = payload.snapshots;
+        stateVersion = payload.version;
+        historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
+        historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
+
+        let activeIndex = 0;
+        if (!showingWorking) {{
+          const matchingIndex = snapshots.findIndex(
+            snapshot => snapshot.kind === "commit" && snapshot.key === selectedCommit
+          );
+          activeIndex = matchingIndex >= 0
+            ? matchingIndex
+            : historyStart + Math.min(currentHistoryIndex, historyCount - 1);
+        }}
+        payload.traces.forEach((trace, index) => {{
+          trace.visible = index === activeIndex;
+        }});
+        await Plotly.react(graph, payload.traces, graph.layout);
+        updateSnapshotMetadata(activeIndex);
+        liveStatus.hidden = true;
+      }} catch (error) {{
+        liveStatus.textContent = "Live refresh unavailable — retrying";
+        liveStatus.hidden = false;
+      }} finally {{
+        refreshInProgress = false;
+      }}
     }}
 
     workingButton.addEventListener("click", () => showSnapshot(0));
     historyButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex));
     newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
     olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));
+    if (liveUpdates) window.setInterval(refreshState, 2500);
   </script>
 </body>
 </html>
@@ -312,7 +425,7 @@ def _snapshot_payload(
                         if count == 0
                         else f"changed since {snapshot.commit.short_hash}"
                     ),
-                    "detail": "Staged, unstaged, and untracked changes",
+                    "detail": "",
                 }
             )
             continue

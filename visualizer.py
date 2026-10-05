@@ -9,16 +9,10 @@ import tempfile
 from time import perf_counter
 import webbrowser
 
-from git_reader import (
-    GitRepositoryError,
-    get_changes_for_commit,
-    get_recent_commits,
-    get_tracked_files,
-    get_working_changes,
-    validate_repository,
-)
-from hierarchy import build_hierarchy
-from treemap_renderer import VisualizationSnapshot, write_visualization
+from git_reader import GitRepositoryError, validate_repository
+from live_server import serve_live
+from snapshot_builder import SnapshotBuilder
+from treemap_renderer import write_visualization
 
 
 COMMIT_LIMIT = 10
@@ -32,7 +26,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--no-open",
         action="store_true",
-        help="Generate the HTML without opening the default browser",
+        help="Do not open the browser automatically",
+    )
+    parser.add_argument(
+        "--static",
+        action="store_true",
+        help="Generate a standalone HTML file instead of starting live mode",
     )
     return parser.parse_args()
 
@@ -43,37 +42,13 @@ def main() -> int:
     try:
         started_at = perf_counter()
         repository = validate_repository(arguments.repository)
-        commits = get_recent_commits(repository, limit=COMMIT_LIMIT)
-        head_commit = commits[0]
-        head_files = get_tracked_files(repository, head_commit.full_hash)
-        working_changes = get_working_changes(repository)
-        working_nodes = build_hierarchy(repository.name, head_files, working_changes)
-        working_change_count = sum(
-            node.kind == "file" and node.status != "unchanged"
-            for node in working_nodes
-        )
-        snapshots = [
-            VisualizationSnapshot(
-                commit=head_commit,
-                nodes=working_nodes,
-                kind="working",
-                change_count=working_change_count,
-            )
-        ]
-        for commit in commits:
-            tracked_files = (
-                head_files
-                if commit.full_hash == head_commit.full_hash
-                else get_tracked_files(repository, commit.full_hash)
-            )
-            changes = get_changes_for_commit(repository, commit.full_hash)
-            snapshots.append(
-                VisualizationSnapshot(
-                    commit=commit,
-                    nodes=build_hierarchy(repository.name, tracked_files, changes),
-                )
-            )
+        builder = SnapshotBuilder(repository, commit_limit=COMMIT_LIMIT)
 
+        if not arguments.static:
+            serve_live(builder, open_browser=not arguments.no_open)
+            return 0
+
+        snapshots = builder.load()
         output_directory = Path(tempfile.mkdtemp(prefix="aiki-map-"))
         output_path = output_directory / "visualizer.html"
         write_visualization(snapshots, output_path)
@@ -84,7 +59,8 @@ def main() -> int:
 
     print(output_path)
     print(
-        f"{working_change_count} working changes | {len(commits)} commits | "
+        f"{snapshots[0].change_count} working changes | "
+        f"{len(snapshots) - 1} commits | "
         f"{elapsed_seconds:.2f}s | "
         f"{output_path.stat().st_size / 1_000_000:.1f} MB"
     )

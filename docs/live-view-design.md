@@ -32,10 +32,13 @@ browser keeps the last valid map visible, reports the problem, and retries.
 
 ## File inspection
 
-Folder clicks continue to drill into the treemap. Selecting a file opens a
-read-only panel with its repository-relative path, exact Git state, comparison
-basis, and added/deleted line totals. Patch content is requested separately only
-after Show Diff is selected.
+Folder clicks continue to drill into the treemap. Selecting a file temporarily
+turns that file's own rectangle into a read-only inspector with its
+repository-relative path, exact Git state, comparison basis, and added/deleted
+line totals. The initial map remains unchanged until a file is selected. Patch
+content is requested separately only after Show Diff is selected. The inspector
+uses the expanded rectangle's full width and height and scrolls internally when
+needed; the treemap breadcrumb or view controls leave the selected file.
 
 The server accepts a file only when its path exists as a visible file node in the
 requested snapshot. Working diffs separate staged and unstaged changes; commit
@@ -55,3 +58,5 @@ lines or 200 KB.
   rectangle identity while boxes move, grow, and shrink.
 - File diffs are on-demand because verification is core product value, while
   computing every patch during live polling would add avoidable work.
+- File inspection stays inside the selected rectangle so location and
+  verification remain in the same visual context without reserving page width.

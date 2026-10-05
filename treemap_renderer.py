@@ -116,6 +116,7 @@ def render_visualization(
         paper_bgcolor="#F8FAFC",
         font={"family": "Arial, sans-serif", "color": "#0F172A"},
         showlegend=False,
+        transition={"duration": 0},
     )
     plot_html = figure.to_html(
         include_plotlyjs=True,
@@ -260,22 +261,44 @@ def _html_document(
     .legend {{ display: flex; flex-wrap: wrap; gap: 14px 30px; margin: 22px 0 18px; padding: 14px 16px; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
     .legend-item {{ display: inline-flex; align-items: center; gap: 9px; color: #334155; font-size: 14px; white-space: nowrap; }}
     .legend-swatch {{ width: 18px; height: 18px; border: 1px solid #CBD5E1; border-radius: 4px; }}
-    .chart-shell {{ height: calc(100vh - 252px); min-height: 480px; overflow: hidden; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
+    .chart-shell {{ position: relative; height: calc(100vh - 252px); min-height: 480px; overflow: hidden; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
     #aiki-map {{ width: 100%; height: 100%; }}
-    .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
-    .file-panel[hidden] {{ display: none; }}
-    .file-panel-header {{ display: flex; justify-content: space-between; gap: 18px; align-items: start; }}
-    .file-panel h2 {{ margin: 0; font-size: 22px; overflow-wrap: anywhere; }}
-    .file-panel-path {{ display: block; margin: 7px 0 18px; color: #475569; overflow-wrap: anywhere; }}
-    .file-panel-close {{ flex: 0 0 auto; width: 36px; height: 36px; border: 1px solid #CBD5E1; border-radius: 8px; background: #FFFFFF; color: #172033; font-size: 22px; cursor: pointer; }}
-    .file-facts {{ display: grid; grid-template-columns: max-content 1fr; gap: 9px 16px; margin: 0 0 20px; }}
-    .file-facts dt {{ color: #64748B; font-weight: 700; }}
+    /*
+      Legacy fixed sidebar retained for a possible design reversal.
+      .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
+      .file-panel[hidden] {{ display: none; }}
+      .file-panel-header {{ display: flex; justify-content: space-between; gap: 18px; align-items: start; }}
+      .file-panel h2 {{ margin: 0; font-size: 22px; overflow-wrap: anywhere; }}
+      .file-panel-path {{ display: block; margin: 7px 0 18px; color: #475569; overflow-wrap: anywhere; }}
+      .file-panel-close {{ flex: 0 0 auto; width: 36px; height: 36px; border: 1px solid #CBD5E1; border-radius: 8px; background: #FFFFFF; color: #172033; font-size: 22px; cursor: pointer; }}
+    */
+    .file-inspector {{ position: absolute; z-index: 20; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding: clamp(18px, 3vw, 42px); color: #172033; }}
+    .file-inspector[hidden] {{ display: none; }}
+    .file-inspector[data-status="unchanged"] {{ background: #E8EDF3; }}
+    .file-inspector[data-status="changed"] {{ background: #E9E4F2; }}
+    .file-inspector[data-status="added"] {{ background: #3A806F; color: #FFFFFF; }}
+    .file-inspector[data-status="modified"] {{ background: #C88732; }}
+    .file-inspector[data-status="deleted"] {{ background: #B4555D; color: #FFFFFF; }}
+    .file-inspector[data-status="renamed"] {{ background: #596FA8; color: #FFFFFF; }}
+    .file-inspector-header {{ display: block; }}
+    .file-inspector h2 {{ margin: 0; font-size: clamp(17px, 1.7vw, 22px); overflow-wrap: anywhere; }}
+    .file-inspector-path {{ display: block; margin: 5px 0 14px; color: inherit; opacity: .78; overflow-wrap: anywhere; }}
+    .file-inspector-body {{ flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }}
+    .file-facts {{ display: grid; grid-template-columns: max-content 1fr; gap: 7px 14px; margin: 0 0 16px; }}
+    .file-facts dt {{ color: inherit; font-weight: 700; opacity: .72; }}
     .file-facts dd {{ margin: 0; overflow-wrap: anywhere; }}
-    .show-diff {{ width: 100%; min-height: 44px; border: 0; border-radius: 9px; background: #172033; color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer; }}
+    .show-diff {{ width: 100%; min-height: 44px; border: 1px solid currentColor; border-radius: 9px; background: #172033; color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer; }}
     .show-diff:disabled {{ cursor: wait; opacity: .62; }}
     .diff-output h3 {{ margin: 22px 0 8px; font-size: 14px; }}
     .diff-output pre {{ margin: 0; padding: 14px; overflow: auto; border-radius: 9px; background: #111827; color: #E5E7EB; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre; }}
     .diff-note {{ margin: 14px 0 0; color: #64748B; font-size: 13px; }}
+    .file-inspector.compact {{ padding: 12px; }}
+    .file-inspector.compact .file-inspector-path {{ margin-bottom: 9px; font-size: 12px; }}
+    .file-inspector.compact .file-facts {{ gap: 4px 9px; margin-bottom: 10px; font-size: 12px; }}
+    .file-inspector.compact .show-diff {{ min-height: 36px; }}
+    .file-inspector.cramped .file-inspector-path,
+    .file-inspector.cramped .file-facts dt:nth-of-type(2),
+    .file-inspector.cramped #file-comparison {{ display: none; }}
     @media (max-width: 760px) {{
       .page {{ padding: 20px 16px 16px; }}
       .header {{ align-items: stretch; flex-direction: column; }}
@@ -284,7 +307,6 @@ def _html_document(
       .header-actions button {{ flex: 1; }}
       .legend {{ gap: 12px 20px; }}
       .chart-shell {{ height: calc(100vh - 340px); min-height: 420px; }}
-      .file-panel {{ top: 12px; right: 12px; width: calc(100vw - 24px); max-height: calc(100vh - 24px); }}
     }}
   </style>
 </head>
@@ -314,24 +336,44 @@ def _html_document(
     </section>
     <section class="chart-shell">
       {plot_html}
+      <aside class="file-inspector" id="file-inspector" aria-labelledby="file-inspector-title" hidden>
+        <div class="file-inspector-header">
+          <h2 id="file-inspector-title"></h2>
+        </div>
+        <code class="file-inspector-path" id="file-inspector-path"></code>
+        <div class="file-inspector-body">
+          <dl class="file-facts">
+            <dt>State</dt><dd id="file-state"></dd>
+            <dt>Compared</dt><dd id="file-comparison"></dd>
+            <dt>Changes</dt><dd id="file-line-counts"></dd>
+            <dt id="previous-path-label" hidden>Previous path</dt><dd id="file-previous-path" hidden></dd>
+          </dl>
+          <button class="show-diff" id="show-diff" type="button">Show Diff</button>
+          <div class="diff-output" id="diff-output" aria-live="polite"></div>
+          <p class="diff-note" id="diff-note" hidden></p>
+        </div>
+      </aside>
     </section>
   </main>
-  <aside class="file-panel" id="file-panel" aria-labelledby="file-panel-title" hidden>
-    <div class="file-panel-header">
-      <h2 id="file-panel-title"></h2>
-      <button class="file-panel-close" id="file-panel-close" type="button" aria-label="Close file details">×</button>
-    </div>
-    <code class="file-panel-path" id="file-panel-path"></code>
-    <dl class="file-facts">
-      <dt>State</dt><dd id="file-state"></dd>
-      <dt>Compared</dt><dd id="file-comparison"></dd>
-      <dt>Changes</dt><dd id="file-line-counts"></dd>
-      <dt id="previous-path-label" hidden>Previous path</dt><dd id="file-previous-path" hidden></dd>
-    </dl>
-    <button class="show-diff" id="show-diff" type="button">Show Diff</button>
-    <div class="diff-output" id="diff-output" aria-live="polite"></div>
-    <p class="diff-note" id="diff-note" hidden></p>
-  </aside>
+  <!--
+    Legacy fixed sidebar markup retained for a possible design reversal.
+    <aside class="file-panel" id="file-panel" aria-labelledby="file-panel-title" hidden>
+      <div class="file-panel-header">
+        <h2 id="file-panel-title"></h2>
+        <button class="file-panel-close" id="file-panel-close" type="button" aria-label="Close file details">×</button>
+      </div>
+      <code class="file-panel-path" id="file-panel-path"></code>
+      <dl class="file-facts">
+        <dt>State</dt><dd id="file-state"></dd>
+        <dt>Compared</dt><dd id="file-comparison"></dd>
+        <dt>Changes</dt><dd id="file-line-counts"></dd>
+        <dt id="previous-path-label" hidden>Previous path</dt><dd id="file-previous-path" hidden></dd>
+      </dl>
+      <button class="show-diff" id="show-diff" type="button">Show Diff</button>
+      <div class="diff-output" id="diff-output" aria-live="polite"></div>
+      <p class="diff-note" id="diff-note" hidden></p>
+    </aside>
+  -->
   <script>
     let snapshots = {snapshot_payload};
     const graph = document.getElementById("aiki-map");
@@ -341,7 +383,8 @@ def _html_document(
     const newerButton = document.getElementById("newer-commit");
     const olderButton = document.getElementById("older-commit");
     const liveStatus = document.getElementById("live-status");
-    const filePanel = document.getElementById("file-panel");
+    const chartShell = document.querySelector(".chart-shell");
+    const fileInspector = document.getElementById("file-inspector");
     const showDiffButton = document.getElementById("show-diff");
     const diffOutput = document.getElementById("diff-output");
     const diffNote = document.getElementById("diff-note");
@@ -429,10 +472,28 @@ def _html_document(
     }}
 
     function closeFilePanel() {{
-      filePanel.hidden = true;
+      fileInspector.hidden = true;
       selectedFile = null;
       diffOutput.replaceChildren();
       diffNote.hidden = true;
+    }}
+
+    function positionFileInspector() {{
+      const graphBounds = graph.getBoundingClientRect();
+      const shellBounds = chartShell.getBoundingClientRect();
+      const plotSize = graph._fullLayout?._size;
+      const left = plotSize?.l ?? 8;
+      const top = plotSize?.t ?? 42;
+      const width = plotSize?.w ?? graphBounds.width - 16;
+      const height = plotSize?.h ?? graphBounds.height - 50;
+      if (width < 80 || height < 70) return false;
+      fileInspector.style.left = `${{graphBounds.left - shellBounds.left + left}}px`;
+      fileInspector.style.top = `${{graphBounds.top - shellBounds.top + top}}px`;
+      fileInspector.style.width = `${{width}}px`;
+      fileInspector.style.height = `${{height}}px`;
+      fileInspector.classList.toggle("compact", width < 520 || height < 340);
+      fileInspector.classList.toggle("cramped", width < 320 || height < 220);
+      return true;
     }}
 
     function fileRequest(path, snapshot, includeDiff) {{
@@ -445,13 +506,14 @@ def _html_document(
       return fetch(`/api/file?${{parameters}}`, {{ cache: "no-store" }});
     }}
 
-    async function openFilePanel(path) {{
-      if (!liveUpdates) return;
+    async function openFilePanel(path, status) {{
+      if (!liveUpdates || !positionFileInspector()) return;
       const snapshot = snapshots[currentSnapshotIndex];
       selectedFile = {{ path, snapshot }};
-      filePanel.hidden = false;
-      document.getElementById("file-panel-title").textContent = path.split("/").pop();
-      document.getElementById("file-panel-path").textContent = path;
+      fileInspector.dataset.status = status;
+      fileInspector.hidden = false;
+      document.getElementById("file-inspector-title").textContent = path.split("/").pop();
+      document.getElementById("file-inspector-path").textContent = path;
       document.getElementById("file-state").textContent = "Loading…";
       document.getElementById("file-comparison").textContent = "";
       document.getElementById("file-line-counts").textContent = "";
@@ -529,11 +591,20 @@ def _html_document(
     historyButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex));
     newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
     olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));
-    document.getElementById("file-panel-close").addEventListener("click", closeFilePanel);
     showDiffButton.addEventListener("click", showSelectedDiff);
     graph.on("plotly_click", event => {{
       const point = event.points?.[0];
-      if (point?.customdata?.[4] === "file") openFilePanel(point.customdata[0]);
+      if (point?.customdata?.[4] === "file") {{
+        openFilePanel(point.customdata[0], point.customdata[1]);
+      }} else {{
+        closeFilePanel();
+      }}
+    }});
+    window.addEventListener("resize", () => {{
+      if (selectedFile && !positionFileInspector()) closeFilePanel();
+    }});
+    document.addEventListener("keydown", event => {{
+      if (event.key === "Escape" && !fileInspector.hidden) closeFilePanel();
     }});
     if (liveUpdates) window.setInterval(refreshState, 2500);
   </script>

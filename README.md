@@ -16,8 +16,8 @@ project before you continue building.
 - Working Changes opens first and includes staged, unstaged, and untracked files.
 - Changed folders are highlighted so you can locate affected areas quickly.
 - Commit History lets you inspect up to 10 recent commits.
-- Selecting a file shows its exact state and line totals; Show Diff loads its
-  read-only patch on demand.
+- Selecting a file turns its box into an inspector showing exact state and line
+  totals; Show Diff loads its read-only patch inside that box on demand.
 
 | Colour | Meaning |
 | --- | --- |

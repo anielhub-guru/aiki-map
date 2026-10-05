@@ -55,6 +55,7 @@ class TreemapData:
     statuses: list[str]
     previous_paths: list[str]
     details: list[str]
+    kinds: list[str]
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
         statuses=[node.status for node in node_list],
         previous_paths=[node.previous_path or "" for node in node_list],
         details=[node.detail for node in node_list],
+        kinds=[node.kind for node in node_list],
     )
 
 
@@ -195,6 +197,7 @@ def _treemap_trace(
                 data.statuses,
                 previous_path_details,
                 change_details,
+                data.kinds,
                 strict=True,
             )
         ),
@@ -259,6 +262,20 @@ def _html_document(
     .legend-swatch {{ width: 18px; height: 18px; border: 1px solid #CBD5E1; border-radius: 4px; }}
     .chart-shell {{ height: calc(100vh - 252px); min-height: 480px; overflow: hidden; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
     #aiki-map {{ width: 100%; height: 100%; }}
+    .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
+    .file-panel[hidden] {{ display: none; }}
+    .file-panel-header {{ display: flex; justify-content: space-between; gap: 18px; align-items: start; }}
+    .file-panel h2 {{ margin: 0; font-size: 22px; overflow-wrap: anywhere; }}
+    .file-panel-path {{ display: block; margin: 7px 0 18px; color: #475569; overflow-wrap: anywhere; }}
+    .file-panel-close {{ flex: 0 0 auto; width: 36px; height: 36px; border: 1px solid #CBD5E1; border-radius: 8px; background: #FFFFFF; color: #172033; font-size: 22px; cursor: pointer; }}
+    .file-facts {{ display: grid; grid-template-columns: max-content 1fr; gap: 9px 16px; margin: 0 0 20px; }}
+    .file-facts dt {{ color: #64748B; font-weight: 700; }}
+    .file-facts dd {{ margin: 0; overflow-wrap: anywhere; }}
+    .show-diff {{ width: 100%; min-height: 44px; border: 0; border-radius: 9px; background: #172033; color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer; }}
+    .show-diff:disabled {{ cursor: wait; opacity: .62; }}
+    .diff-output h3 {{ margin: 22px 0 8px; font-size: 14px; }}
+    .diff-output pre {{ margin: 0; padding: 14px; overflow: auto; border-radius: 9px; background: #111827; color: #E5E7EB; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre; }}
+    .diff-note {{ margin: 14px 0 0; color: #64748B; font-size: 13px; }}
     @media (max-width: 760px) {{
       .page {{ padding: 20px 16px 16px; }}
       .header {{ align-items: stretch; flex-direction: column; }}
@@ -267,6 +284,7 @@ def _html_document(
       .header-actions button {{ flex: 1; }}
       .legend {{ gap: 12px 20px; }}
       .chart-shell {{ height: calc(100vh - 340px); min-height: 420px; }}
+      .file-panel {{ top: 12px; right: 12px; width: calc(100vw - 24px); max-height: calc(100vh - 24px); }}
     }}
   </style>
 </head>
@@ -298,6 +316,22 @@ def _html_document(
       {plot_html}
     </section>
   </main>
+  <aside class="file-panel" id="file-panel" aria-labelledby="file-panel-title" hidden>
+    <div class="file-panel-header">
+      <h2 id="file-panel-title"></h2>
+      <button class="file-panel-close" id="file-panel-close" type="button" aria-label="Close file details">×</button>
+    </div>
+    <code class="file-panel-path" id="file-panel-path"></code>
+    <dl class="file-facts">
+      <dt>State</dt><dd id="file-state"></dd>
+      <dt>Compared</dt><dd id="file-comparison"></dd>
+      <dt>Changes</dt><dd id="file-line-counts"></dd>
+      <dt id="previous-path-label" hidden>Previous path</dt><dd id="file-previous-path" hidden></dd>
+    </dl>
+    <button class="show-diff" id="show-diff" type="button">Show Diff</button>
+    <div class="diff-output" id="diff-output" aria-live="polite"></div>
+    <p class="diff-note" id="diff-note" hidden></p>
+  </aside>
   <script>
     let snapshots = {snapshot_payload};
     const graph = document.getElementById("aiki-map");
@@ -307,14 +341,21 @@ def _html_document(
     const newerButton = document.getElementById("newer-commit");
     const olderButton = document.getElementById("older-commit");
     const liveStatus = document.getElementById("live-status");
+    const filePanel = document.getElementById("file-panel");
+    const showDiffButton = document.getElementById("show-diff");
+    const diffOutput = document.getElementById("diff-output");
+    const diffNote = document.getElementById("diff-note");
     const liveUpdates = {live_updates_json};
     let stateVersion = {version_json};
     let historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
     let historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
     let currentHistoryIndex = 0;
+    let currentSnapshotIndex = 0;
     let refreshInProgress = false;
+    let selectedFile = null;
 
     function updateSnapshotMetadata(index) {{
+      currentSnapshotIndex = index;
       const snapshot = snapshots[index];
       document.getElementById("view-label").textContent = snapshot.label;
       document.getElementById("snapshot-key").textContent = snapshot.key;
@@ -335,6 +376,7 @@ def _html_document(
 
     function showSnapshot(index) {{
       if (index < 0 || index >= snapshots.length) return;
+      closeFilePanel();
       const visible = snapshots.map((_, traceIndex) => traceIndex === index);
       Plotly.restyle(graph, {{ visible }});
       updateSnapshotMetadata(index);
@@ -375,6 +417,7 @@ def _html_document(
           trace.visible = index === activeIndex;
         }});
         await Plotly.react(graph, payload.traces, graph.layout);
+        closeFilePanel();
         updateSnapshotMetadata(activeIndex);
         liveStatus.hidden = true;
       }} catch (error) {{
@@ -385,10 +428,113 @@ def _html_document(
       }}
     }}
 
+    function closeFilePanel() {{
+      filePanel.hidden = true;
+      selectedFile = null;
+      diffOutput.replaceChildren();
+      diffNote.hidden = true;
+    }}
+
+    function fileRequest(path, snapshot, includeDiff) {{
+      const parameters = new URLSearchParams({{
+        path,
+        kind: snapshot.kind,
+        revision: snapshot.revision,
+        diff: includeDiff ? "1" : "0",
+      }});
+      return fetch(`/api/file?${{parameters}}`, {{ cache: "no-store" }});
+    }}
+
+    async function openFilePanel(path) {{
+      if (!liveUpdates) return;
+      const snapshot = snapshots[currentSnapshotIndex];
+      selectedFile = {{ path, snapshot }};
+      filePanel.hidden = false;
+      document.getElementById("file-panel-title").textContent = path.split("/").pop();
+      document.getElementById("file-panel-path").textContent = path;
+      document.getElementById("file-state").textContent = "Loading…";
+      document.getElementById("file-comparison").textContent = "";
+      document.getElementById("file-line-counts").textContent = "";
+      document.getElementById("previous-path-label").hidden = true;
+      document.getElementById("file-previous-path").hidden = true;
+      showDiffButton.disabled = true;
+      showDiffButton.hidden = false;
+      diffOutput.replaceChildren();
+      diffNote.hidden = true;
+
+      try {{
+        const response = await fileRequest(path, snapshot, false);
+        if (!response.ok) throw new Error(`File details failed (${{response.status}})`);
+        const details = await response.json();
+        if (!selectedFile || selectedFile.path !== path) return;
+        document.getElementById("file-state").textContent = details.state;
+        document.getElementById("file-comparison").textContent = details.comparison;
+        document.getElementById("file-line-counts").textContent = details.binary
+          ? "Binary file"
+          : `+${{details.additions}} / −${{details.deletions}} lines`;
+        if (details.previousPath) {{
+          document.getElementById("previous-path-label").hidden = false;
+          const previousPath = document.getElementById("file-previous-path");
+          previousPath.textContent = details.previousPath;
+          previousPath.hidden = false;
+        }}
+        showDiffButton.disabled = false;
+      }} catch (error) {{
+        document.getElementById("file-state").textContent = "Details unavailable";
+        diffNote.textContent = "Could not read this file’s Git details.";
+        diffNote.hidden = false;
+      }}
+    }}
+
+    async function showSelectedDiff() {{
+      if (!selectedFile) return;
+      showDiffButton.disabled = true;
+      showDiffButton.textContent = "Loading Diff…";
+      diffOutput.replaceChildren();
+      diffNote.hidden = true;
+      try {{
+        const response = await fileRequest(
+          selectedFile.path,
+          selectedFile.snapshot,
+          true,
+        );
+        if (!response.ok) throw new Error(`Diff failed (${{response.status}})`);
+        const details = await response.json();
+        if (!details.sections.length) {{
+          diffNote.textContent = "No textual diff is available for this file.";
+          diffNote.hidden = false;
+        }}
+        for (const section of details.sections) {{
+          const heading = document.createElement("h3");
+          heading.textContent = section.label;
+          const patch = document.createElement("pre");
+          patch.textContent = section.content;
+          diffOutput.append(heading, patch);
+        }}
+        if (details.truncated) {{
+          diffNote.textContent = "Diff truncated after 2,000 lines or 200 KB.";
+          diffNote.hidden = false;
+        }}
+        showDiffButton.hidden = true;
+      }} catch (error) {{
+        diffNote.textContent = "Could not load this diff.";
+        diffNote.hidden = false;
+      }} finally {{
+        showDiffButton.disabled = false;
+        showDiffButton.textContent = "Show Diff";
+      }}
+    }}
+
     workingButton.addEventListener("click", () => showSnapshot(0));
     historyButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex));
     newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
     olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));
+    document.getElementById("file-panel-close").addEventListener("click", closeFilePanel);
+    showDiffButton.addEventListener("click", showSelectedDiff);
+    graph.on("plotly_click", event => {{
+      const point = event.points?.[0];
+      if (point?.customdata?.[4] === "file") openFilePanel(point.customdata[0]);
+    }});
     if (liveUpdates) window.setInterval(refreshState, 2500);
   </script>
 </body>
@@ -417,6 +563,7 @@ def _snapshot_payload(
             payload.append(
                 {
                     "kind": "working",
+                    "revision": snapshot.commit.full_hash,
                     "historyIndex": -1,
                     "label": "Working changes",
                     "key": "Working tree clean" if count == 0 else f"{count} file{'s' if count != 1 else ''}",
@@ -433,6 +580,7 @@ def _snapshot_payload(
         payload.append(
             {
                 "kind": "commit",
+                "revision": snapshot.commit.full_hash,
                 "historyIndex": history_index,
                 "label": f"Commit {history_index + 1} of {history_count}",
                 "key": snapshot.commit.short_hash,

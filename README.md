@@ -16,6 +16,8 @@ project before you continue building.
 - Working Changes opens first and includes staged, unstaged, and untracked files.
 - Changed folders are highlighted so you can locate affected areas quickly.
 - Commit History lets you inspect up to 10 recent commits.
+- Selecting a file shows its exact state and line totals; Show Diff loads its
+  read-only patch on demand.
 
 | Colour | Meaning |
 | --- | --- |
@@ -71,6 +73,7 @@ so repository data remains on the local computer.
 4. Check the working state every 2.5 seconds through a local endpoint.
 5. Return no map data when the visual state is unchanged.
 6. Redraw the working map when added, modified, deleted, or renamed paths change.
+7. Read one validated file diff only when Show Diff is selected.
 
 Common dependency, build, cache, and editor directories are filtered from the map
 so that application structure remains visible.
@@ -79,5 +82,5 @@ so that application structure remains visible.
 
 The current MVP combines all working changes in one map and keeps committed
 history as a secondary view. It does not animate treemap geometry, show
-line-by-line code differences, or connect a change to the AI instruction that
-caused it.
+side-by-side comparisons, edit files, or connect a change to the AI instruction
+that caused it.

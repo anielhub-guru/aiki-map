@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import subprocess
 
 
 READ_ONLY_COMMANDS = {
+    "diff",
     "diff-tree",
     "log",
     "ls-tree",
@@ -40,7 +42,24 @@ class FileChange:
     detail: str = ""
 
 
-def _run_git(repository: Path, *arguments: str) -> str:
+@dataclass(frozen=True)
+class FileDiffStats:
+    additions: int
+    deletions: int
+    binary: bool
+
+
+@dataclass(frozen=True)
+class FileDiffSection:
+    label: str
+    content: str
+
+
+def _run_git(
+    repository: Path,
+    *arguments: str,
+    acceptable_returncodes: tuple[int, ...] = (0,),
+) -> str:
     if not arguments or arguments[0] not in READ_ONLY_COMMANDS:
         raise ValueError("Only approved read-only Git commands may be used")
 
@@ -53,7 +72,7 @@ def _run_git(repository: Path, *arguments: str) -> str:
         check=False,
         env=environment,
     )
-    if result.returncode != 0:
+    if result.returncode not in acceptable_returncodes:
         message = result.stderr.strip() or "Git command failed"
         raise GitRepositoryError(message)
     return result.stdout
@@ -134,6 +153,103 @@ def get_working_changes(repository: Path) -> list[FileChange]:
         "--renames",
     )
     return _parse_working_status(output)
+
+
+def get_working_file_stats(
+    repository: Path,
+    path: str,
+    untracked: bool = False,
+) -> FileDiffStats:
+    safe_path = _validate_relative_path(path)
+    if untracked:
+        output = _run_git(
+            repository,
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "--",
+            os.devnull,
+            safe_path,
+            acceptable_returncodes=(0, 1),
+        )
+    else:
+        output = _run_git(
+            repository,
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "HEAD",
+            "--",
+            safe_path,
+        )
+    return _parse_numstat(output)
+
+
+def get_working_file_diff(
+    repository: Path,
+    path: str,
+    untracked: bool = False,
+) -> list[FileDiffSection]:
+    safe_path = _validate_relative_path(path)
+    if untracked:
+        patch = _run_git(
+            repository,
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--",
+            os.devnull,
+            safe_path,
+            acceptable_returncodes=(0, 1),
+        )
+        return [FileDiffSection(label="Untracked file", content=patch)]
+
+    sections = []
+    staged = _run_git(
+        repository,
+        "diff",
+        "--cached",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--",
+        safe_path,
+    )
+    unstaged = _run_git(
+        repository,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--",
+        safe_path,
+    )
+    if staged:
+        sections.append(FileDiffSection(label="Staged changes", content=staged))
+    if unstaged:
+        sections.append(FileDiffSection(label="Unstaged changes", content=unstaged))
+    return sections
+
+
+def get_commit_file_stats(
+    repository: Path,
+    revision: str,
+    path: str,
+) -> FileDiffStats:
+    arguments = _commit_file_arguments(repository, revision, path, "--numstat")
+    return _parse_numstat(_run_git(repository, *arguments))
+
+
+def get_commit_file_diff(
+    repository: Path,
+    revision: str,
+    path: str,
+) -> list[FileDiffSection]:
+    arguments = _commit_file_arguments(repository, revision, path)
+    patch = _run_git(repository, *arguments)
+    return [FileDiffSection(label="Committed changes", content=patch)] if patch else []
 
 
 def get_changes_for_commit(repository: Path, revision: str) -> list[FileChange]:
@@ -261,3 +377,78 @@ def _status_description(status: str) -> str:
         "T": "type change",
         "U": "unmerged change",
     }.get(status, "change")
+
+
+def _commit_file_arguments(
+    repository: Path,
+    revision: str,
+    path: str,
+    *options: str,
+) -> tuple[str, ...]:
+    safe_path = _validate_relative_path(path)
+    commit_and_parents = _run_git(
+        repository,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        revision,
+    ).split()
+    if not commit_and_parents:
+        raise GitRepositoryError("The repository has no commits")
+    commit_hash = commit_and_parents[0]
+    if len(commit_and_parents) == 1:
+        return (
+            "show",
+            "--format=",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-M",
+            *options,
+            commit_hash,
+            "--",
+            safe_path,
+        )
+    return (
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        *options,
+        commit_and_parents[1],
+        commit_hash,
+        "--",
+        safe_path,
+    )
+
+
+def _parse_numstat(output: str) -> FileDiffStats:
+    additions = 0
+    deletions = 0
+    binary = False
+    for line in output.splitlines():
+        fields = line.split("\t", 2)
+        if len(fields) < 3:
+            continue
+        if fields[0] == "-" or fields[1] == "-":
+            binary = True
+            continue
+        additions += int(fields[0])
+        deletions += int(fields[1])
+    return FileDiffStats(
+        additions=additions,
+        deletions=deletions,
+        binary=binary,
+    )
+
+
+def _validate_relative_path(path: str) -> str:
+    candidate = PurePosixPath(path)
+    if (
+        not path
+        or "\0" in path
+        or candidate.is_absolute()
+        or ".." in candidate.parts
+    ):
+        raise ValueError("A repository-relative file path is required")
+    return candidate.as_posix()

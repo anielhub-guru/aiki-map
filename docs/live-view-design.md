@@ -30,6 +30,20 @@ treemap without requiring the user to rerun the command.
 If `HEAD` changes, the server rebuilds recent history. If a refresh fails, the
 browser keeps the last valid map visible, reports the problem, and retries.
 
+## File inspection
+
+Folder clicks continue to drill into the treemap. Selecting a file opens a
+read-only panel with its repository-relative path, exact Git state, comparison
+basis, and added/deleted line totals. Patch content is requested separately only
+after Show Diff is selected.
+
+The server accepts a file only when its path exists as a visible file node in the
+requested snapshot. Working diffs separate staged and unstaged changes; commit
+diffs compare the selected commit with the same baseline used by the map.
+Repository content is inserted into the page through text nodes, not executable
+HTML. Binary files receive a clear label, and textual patches stop after 2,000
+lines or 200 KB.
+
 ## Decision log
 
 - Live mode is the default because current changes are the primary product value.
@@ -39,3 +53,5 @@ browser keeps the last valid map visible, reports the problem, and retries.
 - The server uses Python's standard library to avoid another runtime dependency.
 - Spatial animation is deferred unless a future renderer can reliably preserve
   rectangle identity while boxes move, grow, and shrink.
+- File diffs are on-demand because verification is core product value, while
+  computing every patch during live polling would add avoidable work.

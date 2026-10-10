@@ -21,6 +21,7 @@ from git_reader import (
     get_working_file_stats,
 )
 from snapshot_builder import SnapshotBuilder
+from session import SessionState
 from treemap_renderer import (
     render_visualization,
     visualization_payload,
@@ -35,12 +36,22 @@ MAX_DIFF_BYTES = 200_000
 class LiveApplication:
     """Hold the cached repository reader and serialized initial document."""
 
-    def __init__(self, builder: SnapshotBuilder) -> None:
+    def __init__(
+        self,
+        builder: SnapshotBuilder,
+        session: SessionState | None = None,
+    ) -> None:
         self.builder = builder
+        self.session = session
         self._lock = Lock()
         snapshots = self.builder.load()
         self.document = render_visualization(snapshots, live_updates=True).encode()
         self.initial_version = visualization_version(snapshots)
+        self.baseline_payload = json.dumps(
+            visualization_payload(snapshots),
+            cls=PlotlyJSONEncoder,
+            separators=(",", ":"),
+        ).encode()
         self.initial_change_count = snapshots[0].change_count
         self.commit_count = len(snapshots) - 1
 
@@ -55,6 +66,14 @@ class LiveApplication:
                 cls=PlotlyJSONEncoder,
                 separators=(",", ":"),
             ).encode()
+
+    def session_payload(self) -> bytes:
+        if self.session is None:
+            payload: dict[str, str | int | None] = {"phase": "manual"}
+        else:
+            payload = self.session.snapshot().as_dict()
+        payload["baselineVersion"] = self.initial_version
+        return json.dumps(payload, separators=(",", ":")).encode()
 
     def file_payload(
         self,
@@ -159,6 +178,20 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                 return
             if request.path == "/api/state":
                 self._send_state(parse_qs(request.query).get("version", [""])[0])
+                return
+            if request.path == "/api/session":
+                self._send_bytes(
+                    HTTPStatus.OK,
+                    application.session_payload(),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if request.path == "/api/session/baseline":
+                self._send_bytes(
+                    HTTPStatus.OK,
+                    application.baseline_payload,
+                    "application/json; charset=utf-8",
+                )
                 return
             if request.path == "/api/file":
                 self._send_file(parse_qs(request.query))
@@ -266,13 +299,21 @@ def _truncate_sections(
     return payload, truncated
 
 
+def start_live_server(
+    builder: SnapshotBuilder,
+    session: SessionState | None = None,
+) -> tuple[LiveApplication, ThreadingHTTPServer, str]:
+    """Build the initial baseline and prepare a localhost-only live server."""
+    application = LiveApplication(builder, session=session)
+    server = create_server(application)
+    host, port = server.server_address
+    return application, server, f"http://{host}:{port}/"
+
+
 def serve_live(builder: SnapshotBuilder, open_browser: bool = True) -> None:
     """Run the local live view until interrupted by the user."""
     started_at = perf_counter()
-    application = LiveApplication(builder)
-    server = create_server(application)
-    host, port = server.server_address
-    url = f"http://{host}:{port}/"
+    application, server, url = start_live_server(builder)
     elapsed_seconds = perf_counter() - started_at
 
     print(url)

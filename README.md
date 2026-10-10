@@ -28,35 +28,91 @@ project before you continue building.
 | Coral | Deleted |
 | Indigo | Renamed |
 
-## Quick start
+## Install locally
 
 You need Python 3.10 or newer and Git on your command line.
 
 ```bash
 git clone https://github.com/anielhub-guru/aiki-map.git
-cd aiki-map
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python visualizer.py /path/to/repository
+uv tool install /path/to/aiki-map
 ```
 
-Aiki Map starts a local server, prints its address, and opens it in your default
-browser. Keep the terminal command running while you use the map. Working changes
-refresh every 2.5 seconds, and the browser redraws only when the visual state has
-changed. Press `Ctrl+C` to stop it.
+This installs from the downloaded folder. It does not use or publish to PyPI. If
+you prefer `pipx`, use `pipx install /path/to/aiki-map`.
+
+When the local checkout changes, update the installed command with:
+
+```bash
+uv tool install --force /path/to/aiki-map
+```
+
+## Launch with an AI coding agent
+
+Enter the repository the agent will modify and run one command:
+
+```bash
+cd /path/to/project
+aikimap codex
+```
+
+For Claude Code:
+
+```bash
+aikimap claude
+```
+
+Arguments after the shortcut are passed to the agent:
+
+```bash
+aikimap codex --model your-model
+```
+
+AikiMap detects the current Git repository, records the baseline, opens the
+corner window, and then starts the agent. The installed AikiMap process remains
+active while the live map and wrapped agent are running.
+
+For another terminal agent:
+
+```bash
+aikimap agent --source custom -- your-agent-command --its-argument
+```
+
+To inspect a repository without launching an agent:
+
+```bash
+aikimap view /path/to/repository
+```
+
+AikiMap starts a local server and opens the view. Working changes refresh every
+2.5 seconds, and the interface redraws only when visual state changes.
 
 To start the server without opening a browser automatically:
 
 ```bash
-python visualizer.py /path/to/repository --no-open
+aikimap view /path/to/repository --no-open
 ```
 
 To generate the original standalone file instead of running live mode:
 
 ```bash
-python visualizer.py /path/to/repository --static
+aikimap view /path/to/repository --static
 ```
+
+Use `--repository /path/to/repository` when launching outside the worktree. Use
+`--browser` for remote, headless, or dependency-limited environments:
+
+```bash
+aikimap agent --source codex --repository /path/to/repository --browser -- codex
+```
+
+The native window uses the operating system webview on macOS, Windows, and Linux.
+Linux systems may need their distribution's WebKitGTK runtime. If the native
+webview cannot start, AikiMap falls back to the default browser and prints the
+local review URL.
+
+The wrapper is intended for terminal agents whose process remains active for the
+work session. GUI editors that immediately detach require a future editor hook to
+provide an accurate stop event.
 
 ## Read-only by design
 
@@ -74,6 +130,7 @@ so repository data remains on the local computer.
 5. Return no map data when the visual state is unchanged.
 6. Redraw the working map when added, modified, deleted, or renamed paths change.
 7. Read one validated file diff only when Show Diff is selected.
+8. Optionally wrap an agent process and expose its session state locally.
 
 Common dependency, build, cache, and editor directories are filtered from the map
 so that application structure remains visible.

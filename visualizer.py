@@ -18,11 +18,16 @@ from treemap_renderer import write_visualization
 COMMIT_LIMIT = 10
 
 
-def parse_arguments() -> argparse.Namespace:
+def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Visualize working changes and recent commits as interactive treemaps."
     )
-    parser.add_argument("repository", help="Path to a local Git working repository")
+    parser.add_argument(
+        "repository",
+        nargs="?",
+        default=".",
+        help="Path to a local Git working repository; defaults to the current directory",
+    )
     parser.add_argument(
         "--no-open",
         action="store_true",
@@ -33,11 +38,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Generate a standalone HTML file instead of starting live mode",
     )
-    return parser.parse_args()
+    return parser.parse_args(arguments)
 
 
-def main() -> int:
-    arguments = parse_arguments()
+def main(arguments: list[str] | None = None) -> int:
+    arguments = parse_arguments(arguments)
 
     try:
         started_at = perf_counter()

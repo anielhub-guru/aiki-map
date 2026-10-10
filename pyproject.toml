@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aikimap"
+version = "0.1.0"
+description = "Read-only visual maps for AI-assisted Git workflows"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "plotly>=6.0,<7.0",
+  "pywebview>=5.0,<7.0",
+]
+
+[project.scripts]
+aikimap = "aikimap_cli:main"
+
+[tool.setuptools]
+py-modules = [
+  "agent_launcher",
+  "aikimap_cli",
+  "corner_window",
+  "git_reader",
+  "hierarchy",
+  "live_server",
+  "platform_windows",
+  "session",
+  "snapshot_builder",
+  "treemap_renderer",
+  "visualizer",
+]

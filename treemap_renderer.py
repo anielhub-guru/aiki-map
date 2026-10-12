@@ -398,8 +398,8 @@ def _html_document(
     body.ambient-mode .commit-byline,
     body.ambient-mode .header-actions {{ display: none; }}
     body.ambient-mode .legend {{ gap: 4px 8px; padding: 5px 7px; }}
-    body.ambient-mode .legend-item {{ gap: 4px; font-size: 8px; }}
-    body.ambient-mode .legend-swatch {{ width: 8px; height: 8px; }}
+    body.ambient-mode .legend-item {{ gap: 4px; font-size: 9px; }}
+    body.ambient-mode .legend-swatch {{ width: 9px; height: 9px; }}
     body.ambient-mode .header-stack {{ justify-content: flex-start; }}
     body.ambient-mode .session-toolbar {{ border-color: transparent; background: transparent; box-shadow: none; backdrop-filter: none; }}
     body.ambient-mode .session-toolbar button {{ min-height: 26px; padding: 0 7px; font-size: 10px; }}
@@ -419,8 +419,8 @@ def _html_document(
       .activity-status {{ min-height: 36px; border-radius: 10px; }}
       .activity-action {{ display: none; }}
       .legend {{ gap: 4px 8px; padding: 5px 7px; }}
-      .legend-item {{ gap: 4px; font-size: 8px; }}
-      .legend-swatch {{ width: 8px; height: 8px; }}
+      .legend-item {{ gap: 4px; font-size: 9px; }}
+      .legend-swatch {{ width: 9px; height: 9px; }}
       .activity-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
       .activity-robot svg {{ width: 39px; height: 39px; }}
       .file-inspector-hint {{ display: none; }}

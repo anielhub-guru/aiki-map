@@ -67,7 +67,8 @@ class SessionState:
 
     def dismiss(self) -> None:
         with self._lock:
-            self._phase = SessionPhase.DISMISSED
+            if self._phase in {SessionPhase.STARTED, SessionPhase.ACTIVE}:
+                self._phase = SessionPhase.DISMISSED
 
     def snapshot(self) -> SessionSnapshot:
         with self._lock:

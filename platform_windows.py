@@ -26,7 +26,17 @@ def corner_position(
 
 def primary_screen_size() -> tuple[int, int] | None:
     """Read primary display dimensions, returning None in headless sessions."""
-    if platform.system() == "Windows":
+    system = platform.system()
+    if system == "Darwin":
+        try:
+            from AppKit import NSScreen
+
+            size = NSScreen.mainScreen().frame().size
+            return (int(size.width), int(size.height))
+        except (AttributeError, ImportError, TypeError):
+            return None
+
+    if system == "Windows":
         try:
             import ctypes
 

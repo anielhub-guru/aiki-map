@@ -48,7 +48,17 @@ uv tool install --force /path/to/aiki-map
 
 ## Launch with an AI coding agent
 
-Enter the repository the agent will modify and run one command:
+For Codex IDE, VS Code, Cursor, or another GUI editor, open the repository's
+integrated terminal and run:
+
+```bash
+aikimap ide
+```
+
+This opens AikiMap as a passive repository monitor. It does not launch a second
+Codex process, so continue working through the IDE's normal agent interface.
+
+To wrap the terminal Codex CLI instead, run:
 
 ```bash
 cd /path/to/project
@@ -67,9 +77,9 @@ Arguments after the shortcut are passed to the agent:
 aikimap codex --model your-model
 ```
 
-AikiMap detects the current Git repository, records the baseline, opens the
-corner window, and then starts the agent. The installed AikiMap process remains
-active while the live map and wrapped agent are running.
+AikiMap detects the current Git repository, records the baseline, and opens the
+corner window. Terminal-agent shortcuts then start the wrapped agent; IDE mode
+only monitors the repository.
 
 For another terminal agent:
 
@@ -84,7 +94,8 @@ aikimap view /path/to/repository
 ```
 
 AikiMap starts a local server and opens the view. Working changes refresh every
-2.5 seconds, and the interface redraws only when visual state changes.
+2.5 seconds. Repeated saves to an already-modified file trigger an EDITING pulse
+and a highlighted map tile.
 
 To start the server without opening a browser automatically:
 
@@ -110,9 +121,9 @@ Linux systems may need their distribution's WebKitGTK runtime. If the native
 webview cannot start, AikiMap falls back to the default browser and prints the
 local review URL.
 
-The wrapper is intended for terminal agents whose process remains active for the
-work session. GUI editors that immediately detach require a future editor hook to
-provide an accurate stop event.
+The wrapper commands are intended for terminal agents. GUI editors use
+`aikimap ide`, which observes repository activity without controlling the IDE
+process.
 
 ## Read-only by design
 
@@ -127,8 +138,8 @@ so repository data remains on the local computer.
 2. Read and cache metadata for the latest 10 commits.
 3. Build the repository hierarchy from tracked files and current additions.
 4. Check the working state every 2.5 seconds through a local endpoint.
-5. Return no map data when the visual state is unchanged.
-6. Redraw the working map when added, modified, deleted, or renamed paths change.
+5. Compare file timestamps and sizes with the preceding refresh to detect saves.
+6. Pulse and highlight files being edited, including files already marked modified.
 7. Read one validated file diff only when Show Diff is selected.
 8. Optionally wrap an agent process and expose its session state locally.
 

@@ -6,6 +6,15 @@ import aikimap_cli
 
 class AikiMapCliTests(unittest.TestCase):
     @patch("agent_launcher.main", return_value=0)
+    def test_ide_shortcut_monitors_without_launching_codex(self, launch_agent) -> None:
+        result = aikimap_cli.main(["ide", "--repository", "."])
+
+        self.assertEqual(result, 0)
+        launch_agent.assert_called_once_with(
+            ["--source", "codex-ide", "--monitor-only", "--repository", "."]
+        )
+
+    @patch("agent_launcher.main", return_value=0)
     def test_codex_shortcut_passes_agent_arguments(self, launch_agent) -> None:
         result = aikimap_cli.main(["codex", "--model", "example"])
 

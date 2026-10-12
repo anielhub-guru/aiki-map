@@ -13,6 +13,8 @@ treemap without requiring the user to rerun the command.
 - The browser checks for changes every 2.5 seconds.
 - The treemap redraws only when its repository state changes.
 - The existing standalone output remains available through `--static`.
+- Native agent sessions open in a compact ambient mode. Review expands the same
+  local interface rather than opening a second application surface.
 - There are no animations. Plotly does not smoothly interpolate treemap
   geometry, and substitute fades do not serve the intended interaction.
 - Codex and plugin integration remain outside V0.2.
@@ -44,8 +46,10 @@ The server accepts a file only when its path exists as a visible file node in th
 requested snapshot. Working diffs separate staged and unstaged changes; commit
 diffs compare the selected commit with the same baseline used by the map.
 Repository content is inserted into the page through text nodes, not executable
-HTML. Binary files receive a clear label, and textual patches stop after 2,000
-lines or 200 KB.
+HTML. Added and removed lines receive muted green and red treatments while their
+Git `+` and `-` prefixes remain visible, so colour is not the only signal. Hunk
+markers and patch metadata remain visually secondary. Binary files receive a
+clear label, and textual patches stop after 2,000 lines or 200 KB.
 
 ## Decision log
 
@@ -60,3 +64,6 @@ lines or 200 KB.
   computing every patch during live polling would add avoidable work.
 - File inspection stays inside the selected rectangle so location and
   verification remain in the same visual context without reserving page width.
+- Ambient mode prioritizes session state, the changed-file count, and the live
+  treemap. History controls, the full legend, and detailed inspection appear in
+  the expanded Review mode where they have sufficient space.

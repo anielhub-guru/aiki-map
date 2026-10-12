@@ -64,6 +64,8 @@ class VisualizationSnapshot:
     nodes: list[HierarchyNode]
     kind: str = "commit"
     change_count: int = 0
+    activity_paths: tuple[str, ...] = ()
+    activity_revision: int = 0
 
 
 def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
@@ -112,9 +114,12 @@ def render_visualization(
 
     figure.update_layout(
         autosize=True,
-        margin={"t": 42, "r": 8, "b": 8, "l": 8},
-        paper_bgcolor="#F8FAFC",
-        font={"family": "Arial, sans-serif", "color": "#0F172A"},
+        margin={"t": 32, "r": 6, "b": 6, "l": 6},
+        paper_bgcolor="#FBFAF6",
+        font={
+            "family": "Avenir Next, Avenir, Segoe UI, sans-serif",
+            "color": "#18211F",
+        },
         showlegend=False,
         transition={"duration": 0},
     )
@@ -139,6 +144,10 @@ def visualization_payload(
     snapshot_list = list(snapshots)
     return {
         "version": visualization_version(snapshot_list),
+        "activity": {
+            "paths": list(snapshot_list[0].activity_paths),
+            "revision": snapshot_list[0].activity_revision,
+        },
         "snapshots": _snapshot_payload(snapshot_list),
         "traces": [
             _treemap_trace(snapshot, visible=index == 0).to_plotly_json()
@@ -163,6 +172,7 @@ def visualization_version(snapshots: Iterable[VisualizationSnapshot]) -> str:
             )
             for node in working.nodes
         ],
+        "activity": [working.activity_revision, working.activity_paths],
     }
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -173,6 +183,11 @@ def _treemap_trace(
     visible: bool,
 ) -> go.Treemap:
     data = to_treemap_data(snapshot.nodes)
+    activity_paths = set(snapshot.activity_paths)
+    active = [
+        kind == "file" and path in activity_paths
+        for path, kind in zip(data.paths, data.kinds, strict=True)
+    ]
     previous_path_details = [
         f"Previous path: {path}" if path else ""
         for path in data.previous_paths
@@ -180,13 +195,16 @@ def _treemap_trace(
     change_details = [f"State: {detail}" if detail else "" for detail in data.details]
     return go.Treemap(
         ids=data.ids,
-        labels=data.labels,
+        labels=[f"● {label}" if editing else label for label, editing in zip(data.labels, active, strict=True)],
         parents=data.parents,
         values=data.values,
         branchvalues="total",
         marker={
             "colors": data.colors,
-            "line": {"color": "#F8FAFC", "width": 2},
+            "line": {
+                "color": ["#F4C95D" if editing else "#F8FAFC" for editing in active],
+                "width": [6 if editing else 2 for editing in active],
+            },
         },
         textfont={
             "color": [STATUS_TEXT_COLORS[status] for status in data.statuses]
@@ -240,28 +258,61 @@ def _html_document(
   <title>Aiki Map</title>
   <style>
     * {{ box-sizing: border-box; }}
-    html, body {{ margin: 0; min-height: 100%; background: #F8FAFC; color: #172033; }}
-    body {{ font-family: Arial, sans-serif; }}
-    .page {{ padding: 24px 32px 20px; }}
-    .header {{ display: flex; justify-content: space-between; gap: 24px; align-items: end; }}
-    h1 {{ margin: 0 0 10px; font-size: clamp(28px, 3vw, 42px); line-height: 1.05; }}
-    .eyebrow {{ margin-bottom: 6px; color: #64748B; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }}
-    .commit-line {{ font-size: 18px; line-height: 1.4; }}
-    .commit-line code {{ font-size: 15px; }}
-    .commit-byline {{ margin-top: 4px; color: #475569; font-size: 15px; }}
-    .live-status {{ display: inline-block; margin-top: 6px; color: #9F3A44; font-size: 13px; font-weight: 700; }}
+    :root {{
+      --canvas: #F1F0EA;
+      --surface: #FBFAF6;
+      --surface-raised: #FFFFFF;
+      --ink: #18211F;
+      --muted: #69736F;
+      --line: #D9DDD8;
+      --accent: #2E7566;
+      --accent-soft: #DDEBE6;
+      --danger: #A84E56;
+      --shadow: 0 18px 42px rgba(35, 43, 40, .10);
+    }}
+    html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); }}
+    body {{ font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; }}
+    button {{ font: inherit; }}
+    .page {{ display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; height: 100vh; padding: 16px; }}
+    .header {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }}
+    .window-drag-region {{ min-width: 0; cursor: grab; user-select: none; }}
+    .window-drag-region:active {{ cursor: grabbing; }}
+    .brand-row {{ display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }}
+    .brand-signal {{ width: 9px; height: 9px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }}
+    h1 {{ margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.035em; line-height: 1; }}
+    .session-indicator {{ padding: 4px 8px; border: 1px solid #C8DDD5; border-radius: 999px; background: var(--accent-soft); color: #245C51; font-size: 11px; font-weight: 700; letter-spacing: .02em; }}
+    .session-indicator[data-phase="stopped"] {{ border-color: #DDD6CB; background: #EEEAE2; color: #665F55; }}
+    .session-indicator[data-phase="dismissed"] {{ border-color: #E4CDD0; background: #F3E2E4; color: #843D44; }}
+    .eyebrow {{ margin-bottom: 3px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }}
+    .commit-line {{ display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 14px; line-height: 1.35; }}
+    .commit-line code {{ flex: 0 0 auto; font: 700 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    .commit-line strong {{ overflow: hidden; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }}
+    .commit-byline {{ margin-top: 3px; color: var(--muted); font-size: 12px; }}
+    .live-status {{ display: inline-block; margin-top: 4px; color: var(--danger); font-size: 11px; font-weight: 700; }}
     .live-status[hidden] {{ display: none; }}
-    .header-actions {{ display: flex; flex-direction: column; align-items: end; gap: 12px; flex: 0 0 auto; }}
-    .view-switch, .commit-nav {{ display: flex; gap: 10px; }}
-    .header-actions button {{ min-height: 46px; padding: 0 22px; border: 1px solid #CBD5E1; border-radius: 10px; background: #FFFFFF; color: #172033; font-size: 16px; font-weight: 700; cursor: pointer; }}
-    .header-actions button:hover:not(:disabled):not(.active) {{ border-color: #596FA8; background: #F1F5F9; }}
-    .header-actions button.active {{ border-color: #172033; background: #172033; color: #FFFFFF; }}
+    .activity-status {{ display: flex; align-items: center; gap: 7px; width: fit-content; margin-top: 6px; padding: 4px 8px 4px 5px; border: 1px solid #E2BD58; border-radius: 999px; background: #FFF4C7; color: #60470A; font-size: 10px; font-weight: 750; box-shadow: 0 5px 16px rgba(96, 71, 10, .12); }}
+    .activity-status[hidden] {{ display: none; }}
+    .activity-pulse {{ width: 8px; height: 8px; border-radius: 999px; background: #D99B16; animation: editing-pulse 1.15s ease-out infinite; }}
+    .activity-status strong {{ max-width: 240px; overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }}
+    @keyframes editing-pulse {{ 0% {{ box-shadow: 0 0 0 0 rgba(217, 155, 22, .55); }} 75%, 100% {{ box-shadow: 0 0 0 7px rgba(217, 155, 22, 0); }} }}
+    @media (prefers-reduced-motion: reduce) {{ .activity-pulse {{ animation: none; }} }}
+    .header-stack {{ display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }}
+    .session-controls-slot:empty {{ display: none; }}
+    .session-toolbar {{ display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #D4D8D3; border-radius: 10px; background: rgba(255, 255, 255, .86); box-shadow: 0 8px 24px rgba(36, 45, 41, .09); backdrop-filter: blur(14px); }}
+    .session-toolbar button {{ min-height: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: #3F4945; font-size: 11px; font-weight: 700; cursor: pointer; }}
+    .session-toolbar button:hover {{ background: #ECEEEA; color: var(--ink); }}
+    .session-toolbar .end-session {{ color: #913E47; }}
+    .header-actions {{ display: flex; flex-direction: column; align-items: end; gap: 7px; flex: 0 0 auto; }}
+    .view-switch, .commit-nav {{ display: flex; gap: 5px; }}
+    .header-actions button {{ min-height: 34px; padding: 0 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); color: #46514D; font-size: 12px; font-weight: 700; cursor: pointer; }}
+    .header-actions button:hover:not(:disabled):not(.active) {{ border-color: #91A89F; background: #F4F6F3; }}
+    .header-actions button.active {{ border-color: var(--ink); background: var(--ink); color: #FFFFFF; }}
     .header-actions button:disabled {{ cursor: not-allowed; opacity: .42; }}
     .commit-nav[hidden] {{ display: none; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 14px 30px; margin: 22px 0 18px; padding: 14px 16px; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
-    .legend-item {{ display: inline-flex; align-items: center; gap: 9px; color: #334155; font-size: 14px; white-space: nowrap; }}
-    .legend-swatch {{ width: 18px; height: 18px; border: 1px solid #CBD5E1; border-radius: 4px; }}
-    .chart-shell {{ position: relative; height: calc(100vh - 252px); min-height: 480px; overflow: hidden; border: 1px solid #D8E0E9; border-radius: 12px; background: #FFFFFF; }}
+    .legend {{ display: flex; flex-wrap: wrap; gap: 7px 16px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .68); }}
+    .legend-item {{ display: inline-flex; align-items: center; gap: 6px; color: #56615D; font-size: 11px; white-space: nowrap; }}
+    .legend-swatch {{ width: 10px; height: 10px; border: 1px solid rgba(24, 33, 31, .14); border-radius: 3px; }}
+    .chart-shell {{ position: relative; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }}
     #aiki-map {{ width: 100%; height: 100%; }}
     /*
       Legacy fixed sidebar retained for a possible design reversal.
@@ -290,7 +341,12 @@ def _html_document(
     .show-diff {{ width: 100%; min-height: 44px; border: 1px solid currentColor; border-radius: 9px; background: #172033; color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer; }}
     .show-diff:disabled {{ cursor: wait; opacity: .62; }}
     .diff-output h3 {{ margin: 22px 0 8px; font-size: 14px; }}
-    .diff-output pre {{ margin: 0; padding: 14px; overflow: auto; border-radius: 9px; background: #111827; color: #E5E7EB; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre; }}
+    .diff-patch {{ overflow: auto; padding: 8px 0; border-radius: 9px; background: #111827; color: #D1D5DB; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+    .diff-line {{ min-width: max-content; padding: 0 14px 0 11px; border-left: 3px solid transparent; white-space: pre; }}
+    .diff-line.added {{ border-left-color: #4ADE80; background: rgba(34, 197, 94, .17); color: #BBF7D0; }}
+    .diff-line.deleted {{ border-left-color: #FB7185; background: rgba(244, 63, 94, .17); color: #FECDD3; }}
+    .diff-line.hunk {{ background: rgba(96, 165, 250, .10); color: #93C5FD; }}
+    .diff-line.metadata {{ color: #94A3B8; }}
     .diff-note {{ margin: 14px 0 0; color: #64748B; font-size: 13px; }}
     .file-inspector.compact {{ padding: 12px; }}
     .file-inspector.compact .file-inspector-path {{ margin-bottom: 9px; font-size: 12px; }}
@@ -299,41 +355,64 @@ def _html_document(
     .file-inspector.cramped .file-inspector-path,
     .file-inspector.cramped .file-facts dt:nth-of-type(2),
     .file-inspector.cramped #file-comparison {{ display: none; }}
+    body.ambient-mode .page {{ grid-template-rows: auto minmax(0, 1fr); gap: 9px; padding: 10px; }}
+    body.ambient-mode .header {{ grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }}
+    body.ambient-mode .brand-row {{ margin-bottom: 5px; }}
+    body.ambient-mode h1 {{ font-size: 16px; }}
+    body.ambient-mode .brand-signal {{ width: 7px; height: 7px; box-shadow: 0 0 0 4px var(--accent-soft); }}
+    body.ambient-mode .session-indicator {{ padding: 3px 6px; font-size: 9px; }}
+    body.ambient-mode .eyebrow {{ display: none; }}
+    body.ambient-mode .commit-line {{ font-size: 11px; }}
+    body.ambient-mode .commit-line code {{ font-size: 10px; }}
+    body.ambient-mode .activity-status {{ margin-top: 4px; padding-block: 3px; }}
+    body.ambient-mode .commit-byline,
+    body.ambient-mode .header-actions,
+    body.ambient-mode .legend {{ display: none; }}
+    body.ambient-mode .header-stack {{ justify-content: flex-start; }}
+    body.ambient-mode .session-toolbar {{ border-color: transparent; background: transparent; box-shadow: none; backdrop-filter: none; }}
+    body.ambient-mode .session-toolbar button {{ min-height: 26px; padding: 0 7px; font-size: 10px; }}
+    body.ambient-mode .chart-shell {{ border-radius: 11px; box-shadow: 0 10px 28px rgba(35, 43, 40, .08); }}
     @media (max-width: 760px) {{
-      .page {{ padding: 20px 16px 16px; }}
-      .header {{ align-items: stretch; flex-direction: column; }}
-      .header-actions {{ align-items: stretch; }}
-      .view-switch, .commit-nav {{ width: 100%; }}
-      .header-actions button {{ flex: 1; }}
-      .legend {{ gap: 12px 20px; }}
-      .chart-shell {{ height: calc(100vh - 340px); min-height: 420px; }}
+      .page {{ padding: 12px; }}
+      .header {{ grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }}
+      .header-actions {{ align-items: flex-end; }}
+      .legend {{ gap: 7px 12px; }}
     }}
   </style>
 </head>
 <body>
   <main class="page">
     <header class="header">
-      <div>
-        <h1>Aiki Map</h1>
+      <div class="window-drag-region pywebview-drag-region" title="Drag to move AikiMap">
+        <div class="brand-row">
+          <span class="brand-signal" aria-hidden="true"></span>
+          <h1>AikiMap</h1>
+          <span class="session-indicator" id="session-indicator" data-phase="active">Live</span>
+        </div>
         <div class="eyebrow" id="view-label">{escape(first["label"])}</div>
         <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
         <div class="commit-byline" id="snapshot-detail" hidden></div>
         <div class="live-status" id="live-status" role="status" hidden></div>
+        <div class="activity-status" id="activity-status" role="status" hidden>
+          <span class="activity-pulse" aria-hidden="true"></span>
+          <span>EDITING</span>
+          <strong id="activity-file"></strong>
+        </div>
       </div>
-      <div class="header-actions">
-        <nav class="view-switch" aria-label="Visualization view">
-          <button class="active" id="working-view" type="button">Working Changes</button>
-          <button id="history-view" type="button">Commit History</button>
-        </nav>
-        <nav class="commit-nav" id="commit-nav" aria-label="Commit history" hidden>
-          <button id="older-commit" type="button">← Older commit</button>
-          <button id="newer-commit" type="button" disabled>Newer commit →</button>
-        </nav>
+      <div class="header-stack">
+        <div class="session-controls-slot" id="aikimap-session-controls-slot"></div>
+        <div class="header-actions">
+          <nav class="view-switch" aria-label="Visualization view">
+            <button class="active" id="working-view" type="button">Working</button>
+            <button id="history-view" type="button">History</button>
+          </nav>
+          <nav class="commit-nav" id="commit-nav" aria-label="Commit history" hidden>
+            <button id="older-commit" type="button">← Older</button>
+            <button id="newer-commit" type="button" disabled>Newer →</button>
+          </nav>
+        </div>
       </div>
     </header>
-    <section class="legend" aria-label="Change status legend">
-      {_legend_html()}
-    </section>
     <section class="chart-shell">
       {plot_html}
       <aside class="file-inspector" id="file-inspector" aria-labelledby="file-inspector-title" hidden>
@@ -353,6 +432,9 @@ def _html_document(
           <p class="diff-note" id="diff-note" hidden></p>
         </div>
       </aside>
+    </section>
+    <section class="legend" aria-label="Change status legend">
+      {_legend_html()}
     </section>
   </main>
   <!--
@@ -383,6 +465,9 @@ def _html_document(
     const newerButton = document.getElementById("newer-commit");
     const olderButton = document.getElementById("older-commit");
     const liveStatus = document.getElementById("live-status");
+    const activityStatus = document.getElementById("activity-status");
+    const activityFile = document.getElementById("activity-file");
+    const sessionIndicator = document.getElementById("session-indicator");
     const chartShell = document.querySelector(".chart-shell");
     const fileInspector = document.getElementById("file-inspector");
     const showDiffButton = document.getElementById("show-diff");
@@ -396,6 +481,34 @@ def _html_document(
     let currentSnapshotIndex = 0;
     let refreshInProgress = false;
     let selectedFile = null;
+    let activityTimer = null;
+
+    window.aikimapSetDisplayMode = mode => {{
+      document.body.classList.toggle("ambient-mode", mode === "ambient");
+      const compact = mode === "ambient";
+      Plotly.relayout(graph, compact
+        ? {{ "margin.t": 24, "margin.r": 3, "margin.b": 3, "margin.l": 3 }}
+        : {{ "margin.t": 32, "margin.r": 6, "margin.b": 6, "margin.l": 6 }}
+      );
+      window.requestAnimationFrame(() => Plotly.Plots.resize(graph));
+    }};
+
+    async function refreshSessionStatus() {{
+      if (!liveUpdates) return;
+      try {{
+        const response = await fetch("/api/session", {{ cache: "no-store" }});
+        if (!response.ok) return;
+        const session = await response.json();
+        const source = session.source
+          ? session.source.replaceAll("-", " ")
+          : "Repository";
+        const phase = session.phase === "manual" ? "view" : session.phase;
+        sessionIndicator.dataset.phase = phase;
+        sessionIndicator.textContent = `${{source}} · ${{phase}}`;
+      }} catch (error) {{
+        sessionIndicator.textContent = "Local view";
+      }}
+    }}
 
     function updateSnapshotMetadata(index) {{
       currentSnapshotIndex = index;
@@ -426,6 +539,23 @@ def _html_document(
       Plotly.Plots.resize(graph);
     }}
 
+    function updateActivity(activity) {{
+      window.clearTimeout(activityTimer);
+      if (!activity?.paths?.length) {{
+        activityStatus.hidden = true;
+        return;
+      }}
+      const names = activity.paths.map(path => path.split("/").pop());
+      activityFile.textContent = names.length === 1
+        ? names[0]
+        : `${{names[0]}} +${{names.length - 1}}`;
+      activityFile.title = activity.paths.join("\\n");
+      activityStatus.hidden = false;
+      activityTimer = window.setTimeout(() => {{
+        activityStatus.hidden = true;
+      }}, 6500);
+    }}
+
     async function refreshState() {{
       if (!liveUpdates || refreshInProgress) return;
       refreshInProgress = true;
@@ -442,6 +572,7 @@ def _html_document(
           ? null
           : snapshots[historyStart + currentHistoryIndex]?.key;
         const payload = await response.json();
+        updateActivity(payload.activity);
         snapshots = payload.snapshots;
         stateVersion = payload.version;
         historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
@@ -569,8 +700,7 @@ def _html_document(
         for (const section of details.sections) {{
           const heading = document.createElement("h3");
           heading.textContent = section.label;
-          const patch = document.createElement("pre");
-          patch.textContent = section.content;
+          const patch = renderDiffPatch(section.content);
           diffOutput.append(heading, patch);
         }}
         if (details.truncated) {{
@@ -585,6 +715,34 @@ def _html_document(
         showDiffButton.disabled = false;
         showDiffButton.textContent = "Show Diff";
       }}
+    }}
+
+    function renderDiffPatch(content) {{
+      const patch = document.createElement("div");
+      patch.className = "diff-patch";
+      patch.setAttribute("role", "region");
+      patch.setAttribute("aria-label", "Code changes");
+      const metadataPrefixes = [
+        "diff --git ", "index ", "--- ", "+++ ", "new file mode ",
+        "deleted file mode ", "similarity index ", "rename from ",
+        "rename to ", "Binary files ",
+      ];
+      for (const line of content.split("\\n")) {{
+        const row = document.createElement("div");
+        row.className = "diff-line";
+        if (metadataPrefixes.some(prefix => line.startsWith(prefix))) {{
+          row.classList.add("metadata");
+        }} else if (line.startsWith("@@")) {{
+          row.classList.add("hunk");
+        }} else if (line.startsWith("+")) {{
+          row.classList.add("added");
+        }} else if (line.startsWith("-")) {{
+          row.classList.add("deleted");
+        }}
+        row.textContent = line || " ";
+        patch.append(row);
+      }}
+      return patch;
     }}
 
     workingButton.addEventListener("click", () => showSnapshot(0));
@@ -606,7 +764,11 @@ def _html_document(
     document.addEventListener("keydown", event => {{
       if (event.key === "Escape" && !fileInspector.hidden) closeFilePanel();
     }});
-    if (liveUpdates) window.setInterval(refreshState, 2500);
+    if (liveUpdates) {{
+      refreshSessionStatus();
+      window.setInterval(refreshState, 2500);
+      window.setInterval(refreshSessionStatus, 2500);
+    }}
   </script>
 </body>
 </html>

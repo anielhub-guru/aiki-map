@@ -18,7 +18,7 @@ class SessionStateTests(unittest.TestCase):
         self.assertIsNotNone(stopped.stopped_at)
         session.dismiss()
         session.mark_active()
-        self.assertEqual(session.snapshot().phase, SessionPhase.DISMISSED)
+        self.assertEqual(session.snapshot().phase, SessionPhase.STOPPED)
 
 
 if __name__ == "__main__":

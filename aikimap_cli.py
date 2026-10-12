@@ -14,8 +14,8 @@ def _help_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("codex", "claude", "agent", "view"),
-        help="codex, claude, a custom agent, or the standalone repository view",
+        choices=("ide", "codex", "claude", "agent", "view"),
+        help="IDE monitoring, codex, claude, a custom agent, or repository view",
     )
     return parser
 
@@ -27,6 +27,12 @@ def main(arguments: list[str] | None = None) -> int:
         return 0
 
     command, remainder = supplied[0], supplied[1:]
+    if command == "ide":
+        from agent_launcher import main as launch_agent
+
+        return launch_agent(
+            ["--source", "codex-ide", "--monitor-only", *remainder]
+        )
     if command == "codex":
         from agent_launcher import main as launch_agent
 

@@ -29,6 +29,31 @@ class LiveServerTests(unittest.TestCase):
 
         self.assertIsNone(application.state_payload(application.initial_version))
 
+    def test_rendered_diff_split_keeps_javascript_newline_literal(self) -> None:
+        application = LiveApplication(SnapshotBuilder(self.repository))
+
+        self.assertIn(b'content.split("\\n")', application.document)
+        self.assertNotIn(b'content.split("\n")', application.document)
+
+    def test_rendered_page_supports_ambient_and_review_modes(self) -> None:
+        application = LiveApplication(SnapshotBuilder(self.repository))
+
+        self.assertIn(b'id="aikimap-session-controls-slot"', application.document)
+        self.assertIn(
+            b'class="window-drag-region pywebview-drag-region"',
+            application.document,
+        )
+        self.assertIn(b"window.aikimapSetDisplayMode", application.document)
+        self.assertIn(b"body.ambient-mode .legend", application.document)
+        self.assertLess(
+            application.document.index(b'class="chart-shell"'),
+            application.document.index(b'class="legend"'),
+        )
+        self.assertIn(b'id="session-indicator"', application.document)
+        self.assertIn(b'id="activity-status"', application.document)
+        self.assertIn(b"EDITING", application.document)
+        self.assertIn(b'activity.paths.join("\\n")', application.document)
+
     def test_changed_working_tree_returns_new_payload_without_changing_git(self) -> None:
         application = LiveApplication(SnapshotBuilder(self.repository))
         (self.repository / "unexpected.py").write_text(
@@ -45,6 +70,26 @@ class LiveServerTests(unittest.TestCase):
         self.assertEqual(state["snapshots"][0]["detail"], "")
         self.assertNotEqual(state["version"], application.initial_version)
         self.assertEqual(self._status(), status_before)
+
+    def test_repeated_edit_of_modified_file_emits_fresh_activity(self) -> None:
+        application = LiveApplication(SnapshotBuilder(self.repository))
+        (self.repository / "app.py").write_text("VALUE = 20\n", encoding="utf-8")
+        first = json.loads(application.state_payload(application.initial_version))
+
+        (self.repository / "app.py").write_text(
+            "VALUE = 200\nEXTRA = True\n",
+            encoding="utf-8",
+        )
+        second_payload = application.state_payload(first["version"])
+
+        self.assertIsNotNone(second_payload)
+        second = json.loads(second_payload)
+        self.assertEqual(second["activity"]["paths"], ["app.py"])
+        self.assertGreater(
+            second["activity"]["revision"],
+            first["activity"]["revision"],
+        )
+        self.assertIn("● app.py", second["traces"][0]["labels"])
 
     def test_new_commit_refreshes_history(self) -> None:
         builder = SnapshotBuilder(self.repository)

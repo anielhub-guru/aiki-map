@@ -2,10 +2,15 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from agent_launcher import detect_repository, parse_arguments, resolve_agent_command
-from platform_windows import corner_position
+from agent_launcher import (
+    detect_repository,
+    parse_arguments,
+    resolve_agent_command,
+    stop_process,
+)
+from platform_windows import corner_position, primary_screen_size
 
 
 class AgentLauncherTests(unittest.TestCase):
@@ -29,8 +34,40 @@ class AgentLauncherTests(unittest.TestCase):
 
         self.assertEqual(arguments.command, ["codex", "--model", "example"])
 
+    def test_monitor_only_does_not_require_an_agent_command(self) -> None:
+        arguments = parse_arguments(["--source", "codex-ide", "--monitor-only"])
+
+        self.assertTrue(arguments.monitor_only)
+        self.assertEqual(arguments.command, [])
+
+    def test_stop_process_terminates_then_waits(self) -> None:
+        process = Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+
+        self.assertEqual(stop_process(process), 0)
+
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=5.0)
+
     def test_corner_position_stays_visible_on_small_display(self) -> None:
         self.assertEqual(corner_position(400, 300), (20, 20))
+
+    @patch("platform_windows.platform.system", return_value="Darwin")
+    def test_macos_screen_size_uses_appkit_without_tk(self, _system) -> None:
+        size = type("Size", (), {"width": 1440, "height": 900})()
+        screen = type(
+            "Screen",
+            (),
+            {"frame": lambda self: type("Frame", (), {"size": size})()},
+        )()
+        appkit = type(
+            "AppKit",
+            (),
+            {"NSScreen": type("NSScreen", (), {"mainScreen": lambda: screen})},
+        )()
+        with patch.dict("sys.modules", {"AppKit": appkit, "tkinter": None}):
+            self.assertEqual(primary_screen_size(), (1440, 900))
 
     @patch("agent_launcher.shutil.which", return_value="/usr/local/bin/codex")
     def test_agent_command_prefers_path_executable(self, _which) -> None:

@@ -59,9 +59,9 @@ class LiveApplication:
         self.initial_change_count = snapshots[0].change_count
         self.commit_count = len(snapshots) - 1
 
-    def state_payload(self, client_version: str) -> bytes | None:
+    def state_payload(self, client_version: str, history_ref: str = "") -> bytes | None:
         with self._lock:
-            snapshots = self.builder.load()
+            snapshots = self.builder.load(history_ref)
             version = visualization_version(snapshots)
             if version == client_version:
                 return None
@@ -85,9 +85,10 @@ class LiveApplication:
         revision: str,
         path: str,
         include_diff: bool,
+        history_ref: str = "",
     ) -> bytes:
         with self._lock:
-            snapshots = self.builder.load()
+            snapshots = self.builder.load(history_ref)
             snapshot = self._select_snapshot(snapshots, kind, revision)
             node = next(
                 (
@@ -194,7 +195,10 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                 )
                 return
             if request.path == "/api/state":
-                self._send_state(parse_qs(request.query).get("version", [""])[0])
+                query = parse_qs(request.query)
+                self._send_state(
+                    query.get("version", [""])[0], query.get("branch", [""])[0]
+                )
                 return
             if request.path == "/api/session":
                 self._send_bytes(
@@ -215,9 +219,9 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
-        def _send_state(self, client_version: str) -> None:
+        def _send_state(self, client_version: str, history_ref: str = "") -> None:
             try:
-                payload = application.state_payload(client_version)
+                payload = application.state_payload(client_version, history_ref)
             except (GitRepositoryError, OSError, ValueError) as error:
                 error_payload = json.dumps({"error": str(error)}).encode()
                 self._send_bytes(
@@ -244,6 +248,7 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                     revision=query.get("revision", [""])[0],
                     path=query.get("path", [""])[0],
                     include_diff=query.get("diff", ["0"])[0] == "1",
+                    history_ref=query.get("branch", [""])[0],
                 )
             except ValueError as error:
                 self._send_bytes(

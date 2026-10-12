@@ -12,6 +12,7 @@ import subprocess
 READ_ONLY_COMMANDS = {
     "diff",
     "diff-tree",
+    "for-each-ref",
     "log",
     "ls-tree",
     "rev-list",
@@ -32,6 +33,33 @@ class CommitInfo:
     message: str
     author: str
     authored_at: str
+
+
+@dataclass(frozen=True)
+class BranchInfo:
+    ref: str
+    name: str
+    tip: str
+    current: bool
+    remote: bool
+
+
+def get_branches(repository: Path) -> list[BranchInfo]:
+    """Read local and fetched remote branches without switching the checkout."""
+    output = _run_git(
+        repository, "for-each-ref",
+        "--format=%(refname)\t%(objectname)\t%(HEAD)\t%(symref)",
+        "refs/heads/", "refs/remotes/",
+    )
+    branches = []
+    for line in output.splitlines():
+        ref, tip, current, symbolic = line.split("\t")
+        if symbolic:
+            continue
+        remote = ref.startswith("refs/remotes/")
+        prefix = "refs/remotes/" if remote else "refs/heads/"
+        branches.append(BranchInfo(ref, ref.removeprefix(prefix), tip, current == "*", remote))
+    return branches
 
 
 @dataclass(frozen=True)
@@ -97,7 +125,9 @@ def get_tracked_files(repository: Path, revision: str = "HEAD") -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
-def get_recent_commits(repository: Path, limit: int = 10) -> list[CommitInfo]:
+def get_recent_commits(
+    repository: Path, limit: int = 10, revision: str = "HEAD"
+) -> list[CommitInfo]:
     if limit < 1:
         raise ValueError("Commit limit must be at least 1")
 
@@ -112,6 +142,8 @@ def get_recent_commits(repository: Path, limit: int = 10) -> list[CommitInfo]:
             f"--format=%H{field_separator}%h{field_separator}%s"
             f"{field_separator}%an{field_separator}%aI{record_separator}"
         ),
+        revision,
+        "--",
     )
     commits = []
     for record in output.split("\x1e"):

@@ -6,6 +6,8 @@ from pathlib import Path
 from time import monotonic
 
 from git_reader import (
+    CommitInfo,
+    get_branches,
     get_changes_for_commit,
     get_latest_commit,
     get_recent_commits,
@@ -29,8 +31,10 @@ class SnapshotBuilder:
         self._activity_paths: tuple[str, ...] = ()
         self._activity_revision = 0
         self._activity_expires_at = 0.0
+        self._branch_history_tip = ""
+        self._branch_history: list[VisualizationSnapshot] = []
 
-    def load(self) -> list[VisualizationSnapshot]:
+    def load(self, history_ref: str = "") -> list[VisualizationSnapshot]:
         if not self._history:
             self._reload_history()
         else:
@@ -39,6 +43,17 @@ class SnapshotBuilder:
                 self._reload_history()
 
         head_commit = self._history[0].commit
+        branches = get_branches(self.repository)
+        selected_branch = next((branch for branch in branches if branch.ref == history_ref), None)
+        history_ref = selected_branch.ref if selected_branch and not selected_branch.current else ""
+        history = self._history
+        if history_ref:
+            if selected_branch.tip != self._branch_history_tip:
+                self._branch_history = self._build_history(
+                    get_recent_commits(self.repository, self.commit_limit, selected_branch.tip)
+                )
+                self._branch_history_tip = selected_branch.tip
+            history = self._branch_history
         working_changes = get_working_changes(self.repository)
         working_nodes = build_hierarchy(
             self.repository.name,
@@ -72,8 +87,10 @@ class SnapshotBuilder:
             change_count=working_change_count,
             activity_paths=self._activity_paths,
             activity_revision=self._activity_revision,
+            branches=tuple(branches),
+            history_ref=history_ref,
         )
-        return [working_snapshot, *self._history]
+        return [working_snapshot, *history]
 
     def _file_signatures(
         self,
@@ -94,14 +111,17 @@ class SnapshotBuilder:
         commits = get_recent_commits(self.repository, limit=self.commit_limit)
         head_commit = commits[0]
         head_files = get_tracked_files(self.repository, head_commit.full_hash)
+        history = self._build_history(commits)
+
+        self._head_hash = head_commit.full_hash
+        self._head_files = head_files
+        self._history = history
+
+    def _build_history(self, commits: list[CommitInfo]) -> list[VisualizationSnapshot]:
         history = []
 
         for commit in commits:
-            tracked_files = (
-                head_files
-                if commit.full_hash == head_commit.full_hash
-                else get_tracked_files(self.repository, commit.full_hash)
-            )
+            tracked_files = get_tracked_files(self.repository, commit.full_hash)
             changes = get_changes_for_commit(self.repository, commit.full_hash)
             history.append(
                 VisualizationSnapshot(
@@ -114,6 +134,4 @@ class SnapshotBuilder:
                 )
             )
 
-        self._head_hash = head_commit.full_hash
-        self._head_files = head_files
-        self._history = history
+        return history

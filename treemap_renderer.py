@@ -12,7 +12,7 @@ from typing import Iterable
 
 import plotly.graph_objects as go
 
-from git_reader import CommitInfo
+from git_reader import BranchInfo, CommitInfo
 from hierarchy import HierarchyNode
 
 
@@ -66,6 +66,8 @@ class VisualizationSnapshot:
     change_count: int = 0
     activity_paths: tuple[str, ...] = ()
     activity_revision: int = 0
+    branches: tuple[BranchInfo, ...] = ()
+    history_ref: str = ""
 
 
 def to_treemap_data(nodes: Iterable[HierarchyNode]) -> TreemapData:
@@ -144,6 +146,8 @@ def visualization_payload(
     snapshot_list = list(snapshots)
     return {
         "version": visualization_version(snapshot_list),
+        "branches": [branch.__dict__ for branch in snapshot_list[0].branches],
+        "historyRef": snapshot_list[0].history_ref,
         "activity": {
             "paths": list(snapshot_list[0].activity_paths),
             "revision": snapshot_list[0].activity_revision,
@@ -173,6 +177,8 @@ def visualization_version(snapshots: Iterable[VisualizationSnapshot]) -> str:
             for node in working.nodes
         ],
         "activity": [working.activity_revision, working.activity_paths],
+        "branches": [(branch.ref, branch.tip, branch.current) for branch in working.branches],
+        "historyRef": working.history_ref,
     }
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -249,6 +255,7 @@ def _html_document(
     snapshot_payload = json.dumps(payload).replace("</", "<\\/")
     live_updates_json = json.dumps(live_updates)
     version_json = json.dumps(initial_version)
+    branches_json = json.dumps([branch.__dict__ for branch in snapshots[0].branches]).replace("</", "<\\/")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -278,6 +285,10 @@ def _html_document(
     .window-drag-region {{ min-width: 0; cursor: grab; user-select: none; }}
     .window-drag-region:active {{ cursor: grabbing; }}
     .brand-row {{ display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }}
+    .branch-bar {{ display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 7px; font-size: 11px; color: var(--muted); cursor: default; }}
+    .branch-name {{ color: var(--accent); font-weight: 750; }}
+    .branch-bar label {{ display: inline-flex; align-items: center; gap: 5px; }}
+    .branch-bar select {{ max-width: 200px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }}
     .brand-signal {{ width: 9px; height: 9px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }}
     h1 {{ margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.035em; line-height: 1; }}
     .session-indicator {{ padding: 4px 8px; border: 1px solid #C8DDD5; border-radius: 999px; background: var(--accent-soft); color: #245C51; font-size: 11px; font-weight: 700; letter-spacing: .02em; }}
@@ -392,12 +403,16 @@ def _html_document(
 <body>
   <main class="page">
     <header class="header">
-      <div class="window-drag-region pywebview-drag-region" title="Drag to move AikiMap">
-        <div class="brand-row">
+      <div class="window-drag-region" title="Drag the brand row to move AikiMap">
+        <div class="brand-row pywebview-drag-region">
           <span class="brand-signal" aria-hidden="true"></span>
           <h1>AikiMap</h1>
           <span class="session-indicator" id="session-indicator" data-phase="active">Live</span>
           <span class="directory-activity" id="directory-activity" role="status" hidden></span>
+        </div>
+        <div class="branch-bar">
+          <span class="branch-name" id="branch-name"></span>
+          <label>History branch <select id="branch-picker" aria-label="History branch"></select></label>
         </div>
         <div class="eyebrow" id="view-label">{escape(first["label"])}</div>
         <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
@@ -480,6 +495,8 @@ def _html_document(
     const activityFile = document.getElementById("activity-file");
     const directoryActivity = document.getElementById("directory-activity");
     const sessionIndicator = document.getElementById("session-indicator");
+    const branchName = document.getElementById("branch-name");
+    const branchPicker = document.getElementById("branch-picker");
     const chartShell = document.querySelector(".chart-shell");
     const activityRobots = document.getElementById("activity-robots");
     const fileInspector = document.getElementById("file-inspector");
@@ -496,6 +513,26 @@ def _html_document(
     let selectedFile = null;
     let activityTimer = null;
     let activePaths = [];
+    let historyRef = "";
+
+    function updateBranchControls(branches, selectedRef) {{
+      const current = branches.find(branch => branch.current);
+      branchName.textContent = `⑂ ${{current?.name ?? "Detached HEAD"}}`;
+      branchName.title = "Checked-out branch (Working view)";
+      branchPicker.replaceChildren(new Option(current ? `${{current.name}} · current` : "Detached HEAD", ""));
+      for (const remote of [false, true]) {{
+        const group = document.createElement("optgroup");
+        group.label = remote ? "Remote branches" : "Local branches";
+        for (const branch of branches.filter(branch => branch.remote === remote && !branch.current)) {{
+          group.append(new Option(branch.name, branch.ref));
+        }}
+        if (group.children.length) branchPicker.append(group);
+      }}
+      historyRef = selectedRef;
+      branchPicker.value = historyRef;
+      branchPicker.disabled = !liveUpdates;
+    }}
+    updateBranchControls({branches_json}, "");
 
     function positionActivityRobots() {{
       activityRobots.replaceChildren();
@@ -610,24 +647,26 @@ def _html_document(
       }}, 6500);
     }}
 
-    async function refreshState() {{
+    async function refreshState(selectBranchTip = false) {{
       if (!liveUpdates || refreshInProgress) return;
       refreshInProgress = true;
+      branchPicker.disabled = true;
       try {{
-        const response = await fetch(`/api/state?version=${{encodeURIComponent(stateVersion)}}`, {{ cache: "no-store" }});
+        const response = await fetch(`/api/state?version=${{encodeURIComponent(stateVersion)}}&branch=${{encodeURIComponent(historyRef)}}`, {{ cache: "no-store" }});
         if (response.status === 304) {{
           liveStatus.hidden = true;
           return;
         }}
         if (!response.ok) throw new Error(`Refresh failed (${{response.status}})`);
 
-        const showingWorking = workingButton.classList.contains("active");
-        const selectedCommit = showingWorking
+        const showingWorking = !selectBranchTip && workingButton.classList.contains("active");
+        const selectedCommit = showingWorking || selectBranchTip
           ? null
           : snapshots[historyStart + currentHistoryIndex]?.key;
         const payload = await response.json();
         updateActivity(payload.activity);
         snapshots = payload.snapshots;
+        updateBranchControls(payload.branches, payload.historyRef);
         stateVersion = payload.version;
         historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
         historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
@@ -637,7 +676,7 @@ def _html_document(
           const matchingIndex = snapshots.findIndex(
             snapshot => snapshot.kind === "commit" && snapshot.key === selectedCommit
           );
-          activeIndex = matchingIndex >= 0
+          activeIndex = selectBranchTip ? historyStart : matchingIndex >= 0
             ? matchingIndex
             : historyStart + Math.min(currentHistoryIndex, historyCount - 1);
         }}
@@ -654,6 +693,7 @@ def _html_document(
         liveStatus.hidden = false;
       }} finally {{
         refreshInProgress = false;
+        branchPicker.disabled = !liveUpdates;
       }}
     }}
 
@@ -688,6 +728,7 @@ def _html_document(
         kind: snapshot.kind,
         revision: snapshot.revision,
         diff: includeDiff ? "1" : "0",
+        branch: historyRef,
       }});
       return fetch(`/api/file?${{parameters}}`, {{ cache: "no-store" }});
     }}
@@ -801,6 +842,12 @@ def _html_document(
     }}
 
     workingButton.addEventListener("click", () => showSnapshot(0));
+    branchPicker.addEventListener("change", () => {{
+      historyRef = branchPicker.value;
+      stateVersion = "";
+      currentHistoryIndex = 0;
+      refreshState(true);
+    }});
     historyButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex));
     newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
     olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));

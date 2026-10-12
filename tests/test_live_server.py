@@ -40,7 +40,7 @@ class LiveServerTests(unittest.TestCase):
 
         self.assertIn(b'id="aikimap-session-controls-slot"', application.document)
         self.assertIn(
-            b'class="window-drag-region pywebview-drag-region"',
+            b'class="brand-row pywebview-drag-region"',
             application.document,
         )
         self.assertIn(b"window.aikimapSetDisplayMode", application.document)
@@ -105,6 +105,48 @@ class LiveServerTests(unittest.TestCase):
         self.assertNotEqual(snapshots[1].commit.full_hash, initial_head)
         self.assertEqual(snapshots[1].commit.message, "Update value")
         self.assertEqual(snapshots[0].change_count, 0)
+
+    def test_branch_history_and_diff_do_not_switch_working_tree(self) -> None:
+        current = subprocess.run(
+            ["git", "-C", str(self.repository), "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        self._git("checkout", "-q", "-b", "feature/map")
+        (self.repository / "feature.py").write_text("FEATURE = True\n", encoding="utf-8")
+        self._git("add", "feature.py")
+        self._git("commit", "-q", "-m", "Add feature file")
+        self._git("update-ref", "refs/remotes/origin/feature/map", "HEAD")
+        self._git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/feature/map")
+        self._git("checkout", "-q", current)
+        application = LiveApplication(SnapshotBuilder(self.repository))
+        before = self._status()
+
+        payload = json.loads(application.state_payload(application.initial_version, "refs/heads/feature/map"))
+
+        self.assertEqual(payload["historyRef"], "refs/heads/feature/map")
+        self.assertEqual(payload["snapshots"][1]["message"], "Add feature file")
+        self.assertIn("feature.py", payload["traces"][1]["labels"])
+        self.assertNotIn("feature.py", payload["traces"][0]["labels"])
+        self.assertEqual([branch["name"] for branch in payload["branches"] if branch["current"]], [current])
+        self.assertIn("origin/feature/map", [branch["name"] for branch in payload["branches"]])
+        self.assertNotIn("origin/HEAD", [branch["name"] for branch in payload["branches"]])
+        details = json.loads(application.file_payload(
+            "commit", payload["snapshots"][1]["revision"], "feature.py", True,
+            "refs/heads/feature/map",
+        ))
+        self.assertEqual(details["additions"], 1)
+        self.assertEqual(self._status(), before)
+        self.assertFalse((self.repository / "feature.py").exists())
+
+    def test_new_and_deleted_branches_refresh_metadata(self) -> None:
+        application = LiveApplication(SnapshotBuilder(self.repository))
+        self._git("branch", "feature/new")
+        payload = json.loads(application.state_payload(application.initial_version))
+        self.assertIn("feature/new", [branch["name"] for branch in payload["branches"]])
+        self._git("branch", "-D", "feature/new")
+        updated = json.loads(application.state_payload(payload["version"], "refs/heads/feature/new"))
+        self.assertEqual(updated["historyRef"], "")
+        self.assertNotIn("feature/new", [branch["name"] for branch in updated["branches"]])
 
     def test_file_details_separate_staged_and_unstaged_diff(self) -> None:
         builder = SnapshotBuilder(self.repository)

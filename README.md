@@ -16,6 +16,9 @@ project before you continue building.
 - Working Changes opens first and includes staged, unstaged, and untracked files.
 - Changed folders are highlighted so you can locate affected areas quickly.
 - Commit History lets you inspect up to 10 recent commits.
+- The branch label identifies the current checkout. History branch lets you
+  browse local and fetched remote branches without switching your Git checkout;
+  Working Changes always shows the current checkout.
 - Selecting a file turns its box into an inspector showing exact state and line
   totals; Show Diff loads its read-only patch inside that box on demand.
 

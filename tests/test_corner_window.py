@@ -63,7 +63,10 @@ class WindowActionsTests(unittest.TestCase):
             captured.update(options)
             return window
 
-        webview = SimpleNamespace(create_window=create_window, start=lambda: None)
+        webview = SimpleNamespace(
+            create_window=create_window,
+            start=lambda _background_task: None,
+        )
         actions = WindowActions(FakeProcess(), SessionState(Path.cwd(), "codex"))
         with (
             patch.dict("sys.modules", {"webview": webview}),
@@ -84,9 +87,23 @@ class WindowActionsTests(unittest.TestCase):
         actions.end_session()
 
         self.assertTrue(actions.shutdown_requested.is_set())
-        self.assertTrue(window.destroyed)
+        self.assertFalse(window.destroyed)
         self.assertFalse(process.terminated)
         self.assertEqual(session.snapshot().stop_reason, "Ended by user")
+
+        actions.close_when_requested()
+
+        self.assertTrue(window.destroyed)
+
+    def test_closed_window_is_not_destroyed_twice(self) -> None:
+        actions = WindowActions(None, SessionState(Path.cwd(), "ide"))
+        window = FakeWindow()
+        actions.attach_window(window, None)
+
+        actions.dismiss()
+        actions.close_when_requested()
+
+        self.assertFalse(window.destroyed)
 
 
 if __name__ == "__main__":

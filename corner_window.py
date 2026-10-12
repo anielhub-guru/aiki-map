@@ -58,6 +58,7 @@ class WindowActions:
         self.window: Any = None
         self.screen_size: tuple[int, int] | None = None
         self.shutdown_requested = Event()
+        self.window_closed = Event()
 
     def attach_window(
         self,
@@ -84,10 +85,15 @@ class WindowActions:
     def end_session(self) -> None:
         self.session.mark_stopped("Ended by user")
         self.shutdown_requested.set()
-        if self.window is not None:
+
+    def close_when_requested(self) -> None:
+        """Close outside the JavaScript bridge callback to avoid a native deadlock."""
+        self.shutdown_requested.wait()
+        if self.window is not None and not self.window_closed.is_set():
             self.window.destroy()
 
     def dismiss(self, *_arguments: object) -> None:
+        self.window_closed.set()
         if not self.shutdown_requested.is_set():
             self.session.mark_stopped("Window closed")
             self.shutdown_requested.set()
@@ -128,7 +134,7 @@ def show_corner_window(url: str, actions: WindowActions, force_browser: bool) ->
     window.events.loaded += prepare_window
     window.events.closed += actions.dismiss
     try:
-        webview.start()
+        webview.start(actions.close_when_requested)
     except Exception:
         webbrowser.open(url)
         return False

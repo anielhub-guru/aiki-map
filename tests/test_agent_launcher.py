@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from agent_launcher import (
     detect_repository,
+    main,
     parse_arguments,
     resolve_agent_command,
     stop_process,
@@ -39,6 +40,23 @@ class AgentLauncherTests(unittest.TestCase):
 
         self.assertTrue(arguments.monitor_only)
         self.assertEqual(arguments.command, [])
+
+    def test_detached_ide_launch_returns_without_starting_server(self) -> None:
+        with (
+            patch("agent_launcher.detect_repository", return_value=Path("/tmp/project")),
+            patch("agent_launcher.start_live_server") as server,
+            patch("agent_launcher.subprocess.Popen") as spawn,
+        ):
+            self.assertEqual(
+                main(["--source", "codex-ide", "--monitor-only", "--detach"]),
+                0,
+            )
+
+        server.assert_not_called()
+        command = spawn.call_args.args[0]
+        self.assertEqual(command[1:5], ["-m", "aikimap_cli", "ide", "--repository"])
+        self.assertEqual(command[5], "/tmp/project")
+        self.assertTrue(spawn.call_args.kwargs["start_new_session"])
 
     def test_stop_process_terminates_then_waits(self) -> None:
         process = Mock()

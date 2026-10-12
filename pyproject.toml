@@ -17,6 +17,7 @@ dependencies = [
 aikimap = "aikimap_cli:main"
 
 [tool.setuptools]
+packages = ["aikimap_integration"]
 py-modules = [
   "agent_launcher",
   "aikimap_cli",
@@ -30,3 +31,6 @@ py-modules = [
   "treemap_renderer",
   "visualizer",
 ]
+
+[tool.setuptools.package-data]
+aikimap_integration = ["SKILL.md"]

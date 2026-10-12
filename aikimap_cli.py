@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from importlib.resources import files
+from pathlib import Path
 import sys
 
 
@@ -14,8 +16,8 @@ def _help_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("ide", "codex", "claude", "agent", "view"),
-        help="IDE monitoring, codex, claude, a custom agent, or repository view",
+        choices=("ide", "codex", "claude", "agent", "view", "install-codex"),
+        help="IDE monitoring, codex, claude, a custom agent, repository view, or Codex integration",
     )
     return parser
 
@@ -27,6 +29,17 @@ def main(arguments: list[str] | None = None) -> int:
         return 0
 
     command, remainder = supplied[0], supplied[1:]
+    if command == "install-codex":
+        if remainder:
+            _help_parser().error("install-codex does not accept arguments")
+        destination = Path.home() / ".agents" / "skills" / "aikimap"
+        destination.mkdir(parents=True, exist_ok=True)
+        skill = files("aikimap_integration").joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        (destination / "SKILL.md").write_text(skill, encoding="utf-8")
+        print(f"Installed Codex skill: {destination}")
+        return 0
     if command == "ide":
         from agent_launcher import main as launch_agent
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from threading import Event
-from typing import Any
+from typing import Any, Callable
 import webbrowser
 
 from platform_windows import (
@@ -37,8 +37,24 @@ _CONTROL_SCRIPT = r"""
     window.aikimapSetDisplayMode?.('review');
     event.currentTarget.hidden = true;
   };
-  document.getElementById('aikimap-end').onclick = () => {
-    if (window.confirm('End the wrapped agent session?')) window.pywebview.api.end_session();
+  const endButton = document.getElementById('aikimap-end');
+  let endArmed = false;
+  let endResetTimer;
+  endButton.onclick = async () => {
+    if (!endArmed) {
+      endArmed = true;
+      endButton.textContent = 'Confirm End';
+      window.clearTimeout(endResetTimer);
+      endResetTimer = window.setTimeout(() => {
+        endArmed = false;
+        endButton.textContent = 'End';
+      }, 5000);
+      return;
+    }
+    window.clearTimeout(endResetTimer);
+    endButton.disabled = true;
+    endButton.textContent = 'Ending…';
+    await window.pywebview.api.end_session();
   };
   window.aikimapSetDisplayMode?.('ambient');
 })();
@@ -52,8 +68,10 @@ class WindowActions:
         self,
         process: subprocess.Popen[bytes] | None,
         session: SessionState,
+        stop_agent: Callable[[subprocess.Popen[bytes]], int] | None = None,
     ) -> None:
         self.process = process
+        self.stop_agent = stop_agent
         self.session = session
         self.window: Any = None
         self.screen_size: tuple[int, int] | None = None
@@ -89,6 +107,8 @@ class WindowActions:
     def close_when_requested(self) -> None:
         """Close outside the JavaScript bridge callback to avoid a native deadlock."""
         self.shutdown_requested.wait()
+        if self.process is not None and self.stop_agent is not None:
+            self.stop_agent(self.process)
         if self.window is not None and not self.window_closed.is_set():
             self.window.destroy()
 

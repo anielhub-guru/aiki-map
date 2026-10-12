@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from corner_window import WindowActions, show_corner_window
 from session import SessionState
@@ -80,7 +80,8 @@ class WindowActionsTests(unittest.TestCase):
     def test_end_requests_shutdown_without_terminating_from_webview(self) -> None:
         process = FakeProcess()
         session = SessionState(Path.cwd(), "codex")
-        actions = WindowActions(process, session)
+        stop_agent = Mock(return_value=0)
+        actions = WindowActions(process, session, stop_agent=stop_agent)
         window = FakeWindow()
         actions.attach_window(window, None)
 
@@ -93,7 +94,14 @@ class WindowActionsTests(unittest.TestCase):
 
         actions.close_when_requested()
 
+        stop_agent.assert_called_once_with(process)
         self.assertTrue(window.destroyed)
+
+    def test_end_control_avoids_native_modal_dialog(self) -> None:
+        from corner_window import _CONTROL_SCRIPT
+
+        self.assertNotIn("window.confirm", _CONTROL_SCRIPT)
+        self.assertIn("Confirm End", _CONTROL_SCRIPT)
 
     def test_closed_window_is_not_destroyed_twice(self) -> None:
         actions = WindowActions(None, SessionState(Path.cwd(), "ide"))

@@ -47,6 +47,11 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
         help="Monitor the repository without launching an agent process",
     )
     parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Open IDE monitoring independently of the calling agent",
+    )
+    parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
         help="Agent command, normally placed after --",
@@ -56,6 +61,8 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
         parsed.command = parsed.command[1:]
     if not parsed.command and not parsed.monitor_only:
         parser.error("an agent command is required after --")
+    if parsed.detach and not parsed.monitor_only:
+        parser.error("--detach requires --monitor-only")
     return parsed
 
 
@@ -107,6 +114,26 @@ def main(arguments: list[str] | None = None) -> int:
     options = parse_arguments(arguments)
     try:
         repository = detect_repository(options.repository)
+        if options.detach:
+            command = [
+                sys.executable,
+                "-m",
+                "aikimap_cli",
+                "ide",
+                "--repository",
+                str(repository),
+            ]
+            if options.browser:
+                command.append("--browser")
+            subprocess.Popen(
+                command,
+                cwd=repository,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return 0
         session = SessionState(repository, options.source)
         builder = SnapshotBuilder(repository, commit_limit=COMMIT_LIMIT)
         application, server, url = start_live_server(builder, session)
@@ -143,7 +170,7 @@ def main(arguments: list[str] | None = None) -> int:
 
         watcher = Thread(target=watch_agent, daemon=True)
         watcher.start()
-    actions = WindowActions(process, session)
+    actions = WindowActions(process, session, stop_agent=stop_process)
 
     try:
         native_window = show_corner_window(url, actions, options.browser)

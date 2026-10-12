@@ -314,6 +314,13 @@ def _html_document(
     .legend-swatch {{ width: 10px; height: 10px; border: 1px solid rgba(24, 33, 31, .14); border-radius: 3px; }}
     .chart-shell {{ position: relative; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }}
     #aiki-map {{ width: 100%; height: 100%; }}
+    .activity-robots {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
+    .activity-robot {{ position: absolute; display: grid; place-items: center; width: 36px; height: 36px; border: 2px solid #FFFFFF; border-radius: 12px; background: #DDF5ED; box-shadow: 0 4px 12px rgba(19, 79, 71, .3); transform: translate(-50%, -50%); animation: robot-bob 1.25s ease-in-out infinite; }}
+    .activity-robot svg {{ width: 29px; height: 29px; overflow: visible; }}
+    .activity-robot .robot-eyes {{ animation: robot-blink 3.2s ease-in-out infinite; transform-origin: center; }}
+    @keyframes robot-bob {{ 0%, 100% {{ translate: 0 0; }} 50% {{ translate: 0 -3px; }} }}
+    @keyframes robot-blink {{ 0%, 44%, 52%, 100% {{ transform: scaleY(1); }} 48% {{ transform: scaleY(.15); }} }}
+    @media (prefers-reduced-motion: reduce) {{ .activity-robot, .activity-robot .robot-eyes {{ animation: none; }} }}
     /*
       Legacy fixed sidebar retained for a possible design reversal.
       .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
@@ -415,6 +422,7 @@ def _html_document(
     </header>
     <section class="chart-shell">
       {plot_html}
+      <div class="activity-robots" id="activity-robots" aria-hidden="true"></div>
       <aside class="file-inspector" id="file-inspector" aria-labelledby="file-inspector-title" hidden>
         <div class="file-inspector-header">
           <h2 id="file-inspector-title"></h2>
@@ -469,6 +477,7 @@ def _html_document(
     const activityFile = document.getElementById("activity-file");
     const sessionIndicator = document.getElementById("session-indicator");
     const chartShell = document.querySelector(".chart-shell");
+    const activityRobots = document.getElementById("activity-robots");
     const fileInspector = document.getElementById("file-inspector");
     const showDiffButton = document.getElementById("show-diff");
     const diffOutput = document.getElementById("diff-output");
@@ -482,6 +491,36 @@ def _html_document(
     let refreshInProgress = false;
     let selectedFile = null;
     let activityTimer = null;
+    let activePaths = [];
+
+    function positionActivityRobots() {{
+      activityRobots.replaceChildren();
+      if (currentSnapshotIndex !== 0 || !activePaths.length) return;
+      const shellBounds = chartShell.getBoundingClientRect();
+      const activeIds = new Set(activePaths.map(path => `file:${{path}}`));
+      for (const slice of graph.querySelectorAll("g.slice")) {{
+        const datum = slice.__data__;
+        const id = datum?.id ?? datum?.data?.id;
+        if (!activeIds.has(id)) continue;
+        const tile = slice.querySelector("rect, path.surface") ?? slice;
+        const bounds = tile.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) continue;
+        const robot = document.createElement("span");
+        robot.className = "activity-robot";
+        robot.title = `${{id.slice(5)}} is being edited`;
+        robot.style.left = `${{Math.max(20, Math.min(shellBounds.width - 20, bounds.left - shellBounds.left + Math.min(bounds.width / 2, 22)))}}px`;
+        robot.style.top = `${{Math.max(20, Math.min(shellBounds.height - 20, bounds.top - shellBounds.top + Math.min(bounds.height / 2, 22)))}}px`;
+        robot.innerHTML = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
+          <path d="M16 4v4" stroke="#23675D" stroke-width="2.3" stroke-linecap="round"/>
+          <circle cx="16" cy="3.5" r="2" fill="#E5A729"/>
+          <rect x="3" y="8" width="26" height="20" rx="8" fill="#287D70"/>
+          <rect x="6" y="11" width="20" height="14" rx="5" fill="#F6FFFA"/>
+          <g class="robot-eyes" fill="#23675D"><circle cx="12" cy="17" r="2"/><circle cx="20" cy="17" r="2"/></g>
+          <path d="M12 21c2 2 6 2 8 0" stroke="#D88F27" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        </svg>`;
+        activityRobots.append(robot);
+      }}
+    }}
 
     window.aikimapSetDisplayMode = mode => {{
       document.body.classList.toggle("ambient-mode", mode === "ambient");
@@ -537,10 +576,13 @@ def _html_document(
       Plotly.restyle(graph, {{ visible }});
       updateSnapshotMetadata(index);
       Plotly.Plots.resize(graph);
+      window.requestAnimationFrame(positionActivityRobots);
     }}
 
     function updateActivity(activity) {{
       window.clearTimeout(activityTimer);
+      activePaths = activity?.paths ?? [];
+      window.requestAnimationFrame(positionActivityRobots);
       if (!activity?.paths?.length) {{
         activityStatus.hidden = true;
         return;
@@ -553,6 +595,8 @@ def _html_document(
       activityStatus.hidden = false;
       activityTimer = window.setTimeout(() => {{
         activityStatus.hidden = true;
+        activePaths = [];
+        positionActivityRobots();
       }}, 6500);
     }}
 
@@ -593,6 +637,7 @@ def _html_document(
         await Plotly.react(graph, payload.traces, graph.layout);
         closeFilePanel();
         updateSnapshotMetadata(activeIndex);
+        window.requestAnimationFrame(positionActivityRobots);
         liveStatus.hidden = true;
       }} catch (error) {{
         liveStatus.textContent = "Live refresh unavailable — retrying";
@@ -760,7 +805,9 @@ def _html_document(
     }});
     window.addEventListener("resize", () => {{
       if (selectedFile && !positionFileInspector()) closeFilePanel();
+      window.requestAnimationFrame(positionActivityRobots);
     }});
+    graph.on("plotly_afterplot", () => window.requestAnimationFrame(positionActivityRobots));
     document.addEventListener("keydown", event => {{
       if (event.key === "Escape" && !fileInspector.hidden) closeFilePanel();
     }});

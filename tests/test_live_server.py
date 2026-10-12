@@ -53,6 +53,8 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'id="activity-status"', application.document)
         self.assertIn(b"EDITING", application.document)
         self.assertIn(b'activity.paths.join("\\n")', application.document)
+        self.assertIn(b'id="activity-robots"', application.document)
+        self.assertIn(b'className = "activity-robot"', application.document)
 
     def test_changed_working_tree_returns_new_payload_without_changing_git(self) -> None:
         application = LiveApplication(SnapshotBuilder(self.repository))

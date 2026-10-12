@@ -1,3 +1,5 @@
+from pathlib import Path
+import tempfile
 from unittest.mock import patch
 import unittest
 
@@ -5,6 +7,13 @@ import aikimap_cli
 
 
 class AikiMapCliTests(unittest.TestCase):
+    def test_install_codex_creates_discoverable_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("aikimap_cli.Path.home", return_value=Path(directory)):
+                self.assertEqual(aikimap_cli.main(["install-codex"]), 0)
+            skill = Path(directory) / ".agents" / "skills" / "aikimap" / "SKILL.md"
+            self.assertIn("name: aikimap", skill.read_text(encoding="utf-8"))
+
     @patch("agent_launcher.main", return_value=0)
     def test_ide_shortcut_monitors_without_launching_codex(self, launch_agent) -> None:
         result = aikimap_cli.main(["ide", "--repository", "."])

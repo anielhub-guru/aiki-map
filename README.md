@@ -43,13 +43,31 @@ you prefer `pipx`, use `pipx install /path/to/aiki-map`.
 When the local checkout changes, update the installed command with:
 
 ```bash
-uv tool install --force /path/to/aiki-map
+uv tool install --force --reinstall-package aikimap /path/to/aiki-map
 ```
 
 ## Launch with an AI coding agent
 
-For Codex IDE, VS Code, Cursor, or another GUI editor, open the repository's
-integrated terminal and run:
+For Codex IDE, install the AikiMap skill once after installing the command:
+
+```bash
+aikimap install-codex
+```
+
+Then, in a local Codex coding chat, invoke `$aikimap` or ask it to open AikiMap.
+The agent runs AikiMap in a separate process and the corner window appears
+without opening an external terminal. OpenAI documents `$skill-name` as the
+supported explicit invocation in the Codex IDE extension; custom slash prompts
+are deprecated.
+
+For VS Code, Cursor, Antigravity, or another IDE agent that can run a local
+command, ask it to run this for the current Git repository:
+
+```bash
+aikimap ide --detach --repository /absolute/path/to/project
+```
+
+The equivalent foreground command, useful in an integrated terminal, is:
 
 ```bash
 aikimap ide
@@ -94,8 +112,8 @@ aikimap view /path/to/repository
 ```
 
 AikiMap starts a local server and opens the view. Working changes refresh every
-2.5 seconds. Repeated saves to an already-modified file trigger an EDITING pulse
-and a highlighted map tile.
+2.5 seconds. Repeated saves to an already-modified file trigger an EDITING pulse,
+a highlighted map tile, and an animated robot face over that file.
 
 To start the server without opening a browser automatically:
 

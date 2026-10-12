@@ -33,6 +33,17 @@ from treemap_renderer import (
 
 MAX_DIFF_LINES = 2_000
 MAX_DIFF_BYTES = 200_000
+TOKEN_HEADER = "X-AikiMap-Token"
+CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "worker-src 'self' blob:; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+)
 
 
 class LiveApplication:
@@ -113,6 +124,7 @@ class LiveApplication:
                         self.builder.repository,
                         node.path,
                         untracked=untracked,
+                        max_output_bytes=MAX_DIFF_BYTES,
                     )
                     if include_diff
                     else []
@@ -129,6 +141,7 @@ class LiveApplication:
                         self.builder.repository,
                         snapshot.commit.full_hash,
                         node.path,
+                        max_output_bytes=MAX_DIFF_BYTES,
                     )
                     if include_diff
                     else []
@@ -173,11 +186,14 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
 
     class RequestHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            if self.path != "/api/session/close":
+            if not self._valid_host():
+                self.send_error(HTTPStatus.MISDIRECTED_REQUEST)
+                return
+            if urlparse(self.path).path != "/api/session/close":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
             if not secrets.compare_digest(
-                self.headers.get("X-AikiMap-Token", ""), application.close_token
+                self.headers.get(TOKEN_HEADER, ""), application.close_token
             ) or application.close_callback is None:
                 self.send_error(HTTPStatus.FORBIDDEN)
                 return
@@ -186,7 +202,19 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
             application.close_callback()
 
         def do_GET(self) -> None:
+            if not self._valid_host():
+                self.send_error(HTTPStatus.MISDIRECTED_REQUEST)
+                return
             request = urlparse(self.path)
+            query = parse_qs(request.query)
+            supplied_token = (
+                query.get("token", [""])[0]
+                if request.path in {"/", "/visualizer.html"}
+                else self.headers.get(TOKEN_HEADER, "")
+            )
+            if not secrets.compare_digest(supplied_token, application.close_token):
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return
             if request.path in {"/", "/visualizer.html"}:
                 self._send_bytes(
                     HTTPStatus.OK,
@@ -195,7 +223,6 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                 )
                 return
             if request.path == "/api/state":
-                query = parse_qs(request.query)
                 self._send_state(
                     query.get("version", [""])[0], query.get("branch", [""])[0]
                 )
@@ -286,6 +313,25 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _valid_host(self) -> bool:
+            port = self.server.server_port
+            return self.headers.get("Host", "") in {
+                f"127.0.0.1:{port}",
+                f"localhost:{port}",
+            }
+
+        def end_headers(self) -> None:
+            self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header(
+                "Permissions-Policy",
+                "camera=(), microphone=(), geolocation=()",
+            )
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            super().end_headers()
+
         def log_message(self, format: str, *arguments: object) -> None:
             return
 
@@ -313,6 +359,7 @@ def _truncate_sections(
             remaining_lines -= 1
             remaining_bytes -= line_size
         payload.append({"label": section.label, "content": "".join(kept_lines)})
+        truncated = truncated or section.truncated
         if truncated:
             break
 
@@ -329,7 +376,7 @@ def start_live_server(
     application = LiveApplication(builder, session=session)
     server = create_server(application)
     host, port = server.server_address
-    return application, server, f"http://{host}:{port}/"
+    return application, server, f"http://{host}:{port}/?token={application.close_token}"
 
 
 def serve_live(builder: SnapshotBuilder, open_browser: bool = True) -> None:

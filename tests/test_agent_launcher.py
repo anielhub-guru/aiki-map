@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+import agent_launcher
 from agent_launcher import (
     detect_repository,
     main,
@@ -54,8 +55,13 @@ class AgentLauncherTests(unittest.TestCase):
 
         server.assert_not_called()
         command = spawn.call_args.args[0]
-        self.assertEqual(command[1:5], ["-m", "aikimap_cli", "ide", "--repository"])
-        self.assertEqual(command[5], "/tmp/project")
+        self.assertEqual(
+            command[1],
+            str(Path(agent_launcher.__file__).with_name("aikimap_cli.py").resolve()),
+        )
+        self.assertEqual(command[2:4], ["ide", "--repository"])
+        self.assertEqual(command[4], "/tmp/project")
+        self.assertNotIn("-m", command)
         self.assertTrue(spawn.call_args.kwargs["start_new_session"])
 
     def test_stop_process_terminates_then_waits(self) -> None:

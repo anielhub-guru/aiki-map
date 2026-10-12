@@ -538,6 +538,7 @@ def _html_document(
     const diffOutput = document.getElementById("diff-output");
     const diffNote = document.getElementById("diff-note");
     const liveUpdates = {live_updates_json};
+    const sessionToken = new URLSearchParams(window.location.search).get("token") ?? "";
     let stateVersion = {version_json};
     let historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
     let historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
@@ -549,6 +550,12 @@ def _html_document(
     let activePaths = [];
     let historyRef = "";
     let filePanelHistoryActive = false;
+
+    function apiFetch(resource, options = {{}}) {{
+      const headers = new Headers(options.headers ?? {{}});
+      headers.set("X-AikiMap-Token", sessionToken);
+      return fetch(resource, {{ ...options, headers }});
+    }}
 
     function updateBranchControls(branches, selectedRef) {{
       const current = branches.find(branch => branch.current);
@@ -635,7 +642,7 @@ def _html_document(
     async function refreshSessionStatus() {{
       if (!liveUpdates) return;
       try {{
-        const response = await fetch("/api/session", {{ cache: "no-store" }});
+        const response = await apiFetch("/api/session", {{ cache: "no-store" }});
         if (!response.ok) return;
         const session = await response.json();
         const source = session.source
@@ -711,7 +718,7 @@ def _html_document(
       refreshInProgress = true;
       branchPicker.disabled = true;
       try {{
-        const response = await fetch(`/api/state?version=${{encodeURIComponent(stateVersion)}}&branch=${{encodeURIComponent(historyRef)}}`, {{ cache: "no-store" }});
+        const response = await apiFetch(`/api/state?version=${{encodeURIComponent(stateVersion)}}&branch=${{encodeURIComponent(historyRef)}}`, {{ cache: "no-store" }});
         if (response.status === 304) {{
           liveStatus.hidden = true;
           return;
@@ -798,7 +805,7 @@ def _html_document(
         diff: includeDiff ? "1" : "0",
         branch: historyRef,
       }});
-      return fetch(`/api/file?${{parameters}}`, {{ cache: "no-store" }});
+      return apiFetch(`/api/file?${{parameters}}`, {{ cache: "no-store" }});
     }}
 
     async function openFilePanel(path, status) {{

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import subprocess
+import tempfile
 
 
 READ_ONLY_COMMANDS = {
@@ -81,6 +82,7 @@ class FileDiffStats:
 class FileDiffSection:
     label: str
     content: str
+    truncated: bool = False
 
 
 def _run_git(
@@ -94,7 +96,14 @@ def _run_git(
     environment = os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
-        ["git", "-C", str(repository), *arguments],
+        [
+            "git",
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+            str(repository),
+            *arguments,
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -104,6 +113,54 @@ def _run_git(
         message = result.stderr.strip() or "Git command failed"
         raise GitRepositoryError(message)
     return result.stdout
+
+
+def _run_git_bounded(
+    repository: Path,
+    *arguments: str,
+    max_output_bytes: int,
+    acceptable_returncodes: tuple[int, ...] = (0,),
+) -> tuple[str, bool]:
+    if not arguments or arguments[0] not in READ_ONLY_COMMANDS:
+        raise ValueError("Only approved read-only Git commands may be used")
+    if max_output_bytes < 1:
+        raise ValueError("Git output limit must be positive")
+
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    command = [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "-C",
+        str(repository),
+        *arguments,
+    ]
+    with tempfile.TemporaryFile() as error_output:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=error_output,
+            env=environment,
+        )
+        if process.stdout is None:
+            process.kill()
+            process.wait()
+            raise GitRepositoryError("Git output stream was unavailable")
+        output = process.stdout.read(max_output_bytes + 1)
+        truncated = len(output) > max_output_bytes
+        if truncated:
+            process.kill()
+        process.stdout.close()
+        returncode = process.wait()
+        error_output.seek(0)
+        error_message = error_output.read(65_536).decode(
+            "utf-8", errors="replace"
+        ).strip()
+
+    if not truncated and returncode not in acceptable_returncodes:
+        raise GitRepositoryError(error_message or "Git command failed")
+    return output[:max_output_bytes].decode("utf-8", errors="replace"), truncated
 
 
 def validate_repository(repository: str | Path) -> Path:
@@ -224,10 +281,11 @@ def get_working_file_diff(
     repository: Path,
     path: str,
     untracked: bool = False,
+    max_output_bytes: int = 200_000,
 ) -> list[FileDiffSection]:
     safe_path = _validate_relative_path(path)
     if untracked:
-        patch = _run_git(
+        patch, truncated = _run_git_bounded(
             repository,
             "diff",
             "--no-index",
@@ -236,12 +294,19 @@ def get_working_file_diff(
             "--",
             os.devnull,
             safe_path,
+            max_output_bytes=max_output_bytes,
             acceptable_returncodes=(0, 1),
         )
-        return [FileDiffSection(label="Untracked file", content=patch)]
+        return [
+            FileDiffSection(
+                label="Untracked file",
+                content=patch,
+                truncated=truncated,
+            )
+        ]
 
     sections = []
-    staged = _run_git(
+    staged, staged_truncated = _run_git_bounded(
         repository,
         "diff",
         "--cached",
@@ -249,19 +314,33 @@ def get_working_file_diff(
         "--no-textconv",
         "--",
         safe_path,
+        max_output_bytes=max_output_bytes,
     )
-    unstaged = _run_git(
+    unstaged, unstaged_truncated = _run_git_bounded(
         repository,
         "diff",
         "--no-ext-diff",
         "--no-textconv",
         "--",
         safe_path,
+        max_output_bytes=max_output_bytes,
     )
     if staged:
-        sections.append(FileDiffSection(label="Staged changes", content=staged))
+        sections.append(
+            FileDiffSection(
+                label="Staged changes",
+                content=staged,
+                truncated=staged_truncated,
+            )
+        )
     if unstaged:
-        sections.append(FileDiffSection(label="Unstaged changes", content=unstaged))
+        sections.append(
+            FileDiffSection(
+                label="Unstaged changes",
+                content=unstaged,
+                truncated=unstaged_truncated,
+            )
+        )
     return sections
 
 
@@ -278,10 +357,21 @@ def get_commit_file_diff(
     repository: Path,
     revision: str,
     path: str,
+    max_output_bytes: int = 200_000,
 ) -> list[FileDiffSection]:
     arguments = _commit_file_arguments(repository, revision, path)
-    patch = _run_git(repository, *arguments)
-    return [FileDiffSection(label="Committed changes", content=patch)] if patch else []
+    patch, truncated = _run_git_bounded(
+        repository,
+        *arguments,
+        max_output_bytes=max_output_bytes,
+    )
+    return [
+        FileDiffSection(
+            label="Committed changes",
+            content=patch,
+            truncated=truncated,
+        )
+    ] if patch else []
 
 
 def get_changes_for_commit(repository: Path, revision: str) -> list[FileChange]:

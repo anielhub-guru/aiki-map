@@ -72,7 +72,15 @@ def detect_repository(start: str | Path) -> Path:
     environment = os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
-        ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
+        [
+            "git",
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+            str(candidate),
+            "rev-parse",
+            "--show-toplevel",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -115,10 +123,10 @@ def main(arguments: list[str] | None = None) -> int:
     try:
         repository = detect_repository(options.repository)
         if options.detach:
+            trusted_cli = Path(__file__).with_name("aikimap_cli.py").resolve()
             command = [
                 sys.executable,
-                "-m",
-                "aikimap_cli",
+                str(trusted_cli),
                 "ide",
                 "--repository",
                 str(repository),

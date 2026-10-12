@@ -15,6 +15,60 @@ from snapshot_builder import SnapshotBuilder
 
 
 class SessionServerTests(unittest.TestCase):
+    def test_live_document_and_apis_require_token_and_security_headers(self) -> None:
+        application = SimpleNamespace(
+            close_token="session-secret",
+            close_callback=None,
+            document=b"<html></html>",
+            baseline_payload=b"{}",
+            session_payload=lambda: b"{}",
+        )
+        server = create_server(application)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        root = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(f"{root}/", timeout=2)
+            self.assertEqual(error.exception.code, 403)
+
+            with urlopen(f"{root}/?token=session-secret", timeout=2) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+                self.assertEqual(
+                    response.headers["X-Content-Type-Options"],
+                    "nosniff",
+                )
+                self.assertIn(
+                    "frame-ancestors 'none'",
+                    response.headers["Content-Security-Policy"],
+                )
+
+            with self.assertRaises(HTTPError) as error:
+                urlopen(f"{root}/api/session", timeout=2)
+            self.assertEqual(error.exception.code, 403)
+
+            request = Request(
+                f"{root}/api/session",
+                headers={"X-AikiMap-Token": "session-secret"},
+            )
+            with urlopen(request, timeout=2) as response:
+                self.assertEqual(response.status, 200)
+
+            invalid_host = Request(
+                f"{root}/api/session",
+                headers={
+                    "Host": f"attacker.example:{server.server_port}",
+                    "X-AikiMap-Token": "session-secret",
+                },
+            )
+            with self.assertRaises(HTTPError) as error:
+                urlopen(invalid_host, timeout=2)
+            self.assertEqual(error.exception.code, 421)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_close_endpoint_requires_session_token(self) -> None:
         closed = Event()
         callback = Mock(side_effect=closed.set)

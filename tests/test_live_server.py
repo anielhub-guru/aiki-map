@@ -5,7 +5,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
+from git_reader import get_branches
 from live_server import LiveApplication
 from snapshot_builder import SnapshotBuilder
 
@@ -64,6 +66,10 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'paths.join("\\n")', application.document)
         self.assertIn(b'id="file-inspector-back"', application.document)
         self.assertIn(b'id="history-branch-control"', application.document)
+        self.assertIn(
+            b'headers.set("X-AikiMap-Token", sessionToken)',
+            application.document,
+        )
         self.assertIn(
             b"branchControl.hidden = selectableBranches.length === 0",
             application.document,
@@ -286,6 +292,34 @@ class LiveServerTests(unittest.TestCase):
             for section in details["sections"]
         )
         self.assertLessEqual(rendered_lines, 2_000)
+
+    def test_diff_subprocess_output_is_bounded_before_rendering(self) -> None:
+        (self.repository / "huge.txt").write_text(
+            f"{'x' * 300_000}\n",
+            encoding="utf-8",
+        )
+        builder = SnapshotBuilder(self.repository)
+        application = LiveApplication(builder)
+        revision = builder.load()[0].commit.full_hash
+
+        details = json.loads(
+            application.file_payload("working", revision, "huge.txt", True)
+        )
+
+        self.assertTrue(details["truncated"])
+        rendered_bytes = sum(
+            len(section["content"].encode("utf-8"))
+            for section in details["sections"]
+        )
+        self.assertLessEqual(rendered_bytes, 200_000)
+
+    def test_git_commands_disable_repository_fsmonitor(self) -> None:
+        completed = Mock(returncode=0, stdout="", stderr="")
+        with patch("git_reader.subprocess.run", return_value=completed) as run:
+            get_branches(self.repository)
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[1:4], ["-c", "core.fsmonitor=false", "-C"])
 
     def _git(self, *arguments: str) -> None:
         subprocess.run(

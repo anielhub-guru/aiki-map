@@ -280,7 +280,7 @@ def _html_document(
     html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); }}
     body {{ font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; }}
     button {{ font: inherit; }}
-    .page {{ display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; height: 100vh; padding: 16px; }}
+    .page {{ display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; height: 100vh; padding: 16px; }}
     .header {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }}
     .window-drag-region {{ min-width: 0; cursor: grab; user-select: none; }}
     .window-drag-region:active {{ cursor: grabbing; }}
@@ -291,7 +291,7 @@ def _html_document(
     .branch-bar select {{ max-width: 200px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }}
     .brand-signal {{ width: 9px; height: 9px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }}
     h1 {{ margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.035em; line-height: 1; }}
-    .session-indicator {{ padding: 4px 8px; border: 1px solid #C8DDD5; border-radius: 999px; background: var(--accent-soft); color: #245C51; font-size: 11px; font-weight: 700; letter-spacing: .02em; }}
+    .session-indicator {{ padding: 4px 8px; border: 1px solid #C8DDD5; border-radius: 999px; background: var(--accent-soft); color: #245C51; font-size: 11px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }}
     .session-indicator[data-phase="stopped"] {{ border-color: #DDD6CB; background: #EEEAE2; color: #665F55; }}
     .session-indicator[data-phase="dismissed"] {{ border-color: #E4CDD0; background: #F3E2E4; color: #843D44; }}
     .directory-activity {{ max-width: 200px; overflow: hidden; padding: 4px 8px; border: 1px solid #E2BD58; border-radius: 999px; background: #FFF4C7; color: #60470A; font-size: 11px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }}
@@ -303,10 +303,13 @@ def _html_document(
     .commit-byline {{ margin-top: 3px; color: var(--muted); font-size: 12px; }}
     .live-status {{ display: inline-block; margin-top: 4px; color: var(--danger); font-size: 11px; font-weight: 700; }}
     .live-status[hidden] {{ display: none; }}
-    .activity-status {{ display: flex; align-items: center; gap: 7px; width: fit-content; margin-top: 6px; padding: 4px 8px 4px 5px; border: 1px solid #E2BD58; border-radius: 999px; background: #FFF4C7; color: #60470A; font-size: 10px; font-weight: 750; box-shadow: 0 5px 16px rgba(96, 71, 10, .12); }}
+    .activity-status {{ display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px 6px 8px; border: 1px solid #E2BD58; border-radius: 12px; background: #FFF4C7; color: #60470A; font-size: 10px; font-weight: 750; text-align: left; box-shadow: 0 5px 16px rgba(96, 71, 10, .12); cursor: pointer; }}
     .activity-status[hidden] {{ display: none; }}
     .activity-pulse {{ width: 8px; height: 8px; border-radius: 999px; background: #D99B16; animation: editing-pulse 1.15s ease-out infinite; }}
-    .activity-status strong {{ max-width: 240px; overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }}
+    .activity-status strong {{ overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }}
+    .activity-action {{ color: #7A5B0A; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }}
+    .activity-status:hover {{ border-color: #D6A72B; background: #FFF0AD; }}
+    .activity-status:focus-visible {{ outline: 3px solid rgba(46, 117, 102, .28); outline-offset: 2px; }}
     @keyframes editing-pulse {{ 0% {{ box-shadow: 0 0 0 0 rgba(217, 155, 22, .55); }} 75%, 100% {{ box-shadow: 0 0 0 7px rgba(217, 155, 22, 0); }} }}
     @media (prefers-reduced-motion: reduce) {{ .activity-pulse {{ animation: none; }} }}
     .header-stack {{ display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }}
@@ -329,6 +332,7 @@ def _html_document(
     #aiki-map {{ width: 100%; height: 100%; }}
     .activity-robots {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
     .activity-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); animation: robot-bob 1.25s ease-in-out infinite; }}
+    .activity-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
     .activity-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
     .activity-robot .robot-eyes {{ animation: robot-blink 3.2s ease-in-out infinite; transform-origin: center; }}
     @keyframes robot-bob {{ 0%, 100% {{ translate: 0 0; }} 50% {{ translate: 0 -3px; }} }}
@@ -351,6 +355,10 @@ def _html_document(
     .file-inspector[data-status="modified"] {{ background: #C88732; }}
     .file-inspector[data-status="deleted"] {{ background: #B4555D; color: #FFFFFF; }}
     .file-inspector[data-status="renamed"] {{ background: #596FA8; color: #FFFFFF; }}
+    .file-inspector-toolbar {{ position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: calc(clamp(18px, 3vw, 42px) * -1) calc(clamp(18px, 3vw, 42px) * -1) 18px; padding: 12px clamp(18px, 3vw, 42px); background: rgba(255, 255, 255, .88); color: #172033; box-shadow: 0 1px 0 rgba(23, 32, 51, .12); backdrop-filter: blur(14px); }}
+    .file-inspector-back {{ min-height: 36px; padding: 0 13px; border: 1px solid rgba(23, 32, 51, .24); border-radius: 9px; background: #FFFFFF; color: #172033; font-weight: 750; cursor: pointer; }}
+    .file-inspector-back:hover {{ border-color: var(--accent); color: var(--accent); }}
+    .file-inspector-hint {{ color: #5D6664; font-size: 11px; }}
     .file-inspector-header {{ display: block; }}
     .file-inspector h2 {{ margin: 0; font-size: clamp(17px, 1.7vw, 22px); overflow-wrap: anywhere; }}
     .file-inspector-path {{ display: block; margin: 5px 0 14px; color: inherit; opacity: .78; overflow-wrap: anywhere; }}
@@ -369,13 +377,14 @@ def _html_document(
     .diff-line.metadata {{ color: #94A3B8; }}
     .diff-note {{ margin: 14px 0 0; color: #64748B; font-size: 13px; }}
     .file-inspector.compact {{ padding: 12px; }}
+    .file-inspector.compact .file-inspector-toolbar {{ margin: -12px -12px 12px; padding: 8px 12px; }}
     .file-inspector.compact .file-inspector-path {{ margin-bottom: 9px; font-size: 12px; }}
     .file-inspector.compact .file-facts {{ gap: 4px 9px; margin-bottom: 10px; font-size: 12px; }}
     .file-inspector.compact .show-diff {{ min-height: 36px; }}
     .file-inspector.cramped .file-inspector-path,
     .file-inspector.cramped .file-facts dt:nth-of-type(2),
     .file-inspector.cramped #file-comparison {{ display: none; }}
-    body.ambient-mode .page {{ grid-template-rows: auto minmax(0, 1fr); gap: 9px; padding: 10px; }}
+    body.ambient-mode .page {{ grid-template-rows: auto auto minmax(0, 1fr); gap: 9px; padding: 10px; }}
     body.ambient-mode .header {{ grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }}
     body.ambient-mode .brand-row {{ margin-bottom: 5px; }}
     body.ambient-mode h1 {{ font-size: 16px; }}
@@ -384,7 +393,7 @@ def _html_document(
     body.ambient-mode .eyebrow {{ display: none; }}
     body.ambient-mode .commit-line {{ font-size: 11px; }}
     body.ambient-mode .commit-line code {{ font-size: 10px; }}
-    body.ambient-mode .activity-status {{ margin-top: 4px; padding-block: 3px; }}
+    body.ambient-mode .activity-status {{ min-height: 36px; padding-block: 3px; }}
     body.ambient-mode .commit-byline,
     body.ambient-mode .header-actions,
     body.ambient-mode .legend {{ display: none; }}
@@ -397,6 +406,19 @@ def _html_document(
       .header {{ grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }}
       .header-actions {{ align-items: flex-end; }}
       .legend {{ gap: 7px 12px; }}
+    }}
+    @media (max-width: 520px), (max-height: 560px) {{
+      .page {{ gap: 8px; padding: 10px; }}
+      .branch-bar {{ margin-bottom: 4px; }}
+      .branch-bar label {{ min-width: 0; }}
+      .branch-bar select {{ max-width: min(220px, 48vw); }}
+      .directory-activity {{ display: none; }}
+      .activity-status {{ min-height: 36px; border-radius: 10px; }}
+      .activity-action {{ display: none; }}
+      .legend {{ display: none; }}
+      .activity-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
+      .activity-robot svg {{ width: 39px; height: 39px; }}
+      .file-inspector-hint {{ display: none; }}
     }}
   </style>
 </head>
@@ -418,11 +440,6 @@ def _html_document(
         <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
         <div class="commit-byline" id="snapshot-detail" hidden></div>
         <div class="live-status" id="live-status" role="status" hidden></div>
-        <div class="activity-status" id="activity-status" role="status" hidden>
-          <span class="activity-pulse" aria-hidden="true"></span>
-          <span>EDITING</span>
-          <strong id="activity-file"></strong>
-        </div>
       </div>
       <div class="header-stack">
         <div class="session-controls-slot" id="aikimap-session-controls-slot"></div>
@@ -438,10 +455,20 @@ def _html_document(
         </div>
       </div>
     </header>
+    <button class="activity-status" id="activity-status" type="button" aria-label="Open the file currently being edited" hidden>
+      <span class="activity-pulse" aria-hidden="true"></span>
+      <span>EDITING</span>
+      <strong id="activity-file"></strong>
+      <span class="activity-action">View file →</span>
+    </button>
     <section class="chart-shell">
       {plot_html}
       <div class="activity-robots" id="activity-robots" aria-hidden="true"></div>
       <aside class="file-inspector" id="file-inspector" aria-labelledby="file-inspector-title" hidden>
+        <div class="file-inspector-toolbar">
+          <button class="file-inspector-back" id="file-inspector-back" type="button">← Back to map</button>
+          <span class="file-inspector-hint">Esc also returns</span>
+        </div>
         <div class="file-inspector-header">
           <h2 id="file-inspector-title"></h2>
         </div>
@@ -500,6 +527,7 @@ def _html_document(
     const chartShell = document.querySelector(".chart-shell");
     const activityRobots = document.getElementById("activity-robots");
     const fileInspector = document.getElementById("file-inspector");
+    const fileInspectorBack = document.getElementById("file-inspector-back");
     const showDiffButton = document.getElementById("show-diff");
     const diffOutput = document.getElementById("diff-output");
     const diffNote = document.getElementById("diff-note");
@@ -514,6 +542,7 @@ def _html_document(
     let activityTimer = null;
     let activePaths = [];
     let historyRef = "";
+    let filePanelHistoryActive = false;
 
     function updateBranchControls(branches, selectedRef) {{
       const current = branches.find(branch => branch.current);
@@ -538,17 +567,39 @@ def _html_document(
       activityRobots.replaceChildren();
       if (currentSnapshotIndex !== 0 || !activePaths.length) return;
       const shellBounds = chartShell.getBoundingClientRect();
-      const activeIds = new Set(activePaths.map(path => `file:${{path}}`));
+      const visibleTiles = new Map();
       for (const slice of graph.querySelectorAll("g.slice")) {{
         const datum = slice.__data__;
         const id = datum?.id ?? datum?.data?.id;
-        if (!activeIds.has(id)) continue;
+        if (!id) continue;
         const tile = slice.querySelector("rect, path.surface") ?? slice;
         const bounds = tile.getBoundingClientRect();
         if (!bounds.width || !bounds.height) continue;
+        visibleTiles.set(id, bounds);
+      }}
+      const groupedAnchors = new Map();
+      for (const path of activePaths) {{
+        const parts = path.split("/");
+        const candidates = [`file:${{path}}`];
+        parts.pop();
+        while (parts.length) {{
+          candidates.push(`dir:${{parts.join("/")}}`);
+          parts.pop();
+        }}
+        candidates.push("repo:/");
+        const anchorId = candidates.find(candidate => visibleTiles.has(candidate));
+        if (!anchorId) continue;
+        const anchoredPaths = groupedAnchors.get(anchorId) ?? [];
+        anchoredPaths.push(path);
+        groupedAnchors.set(anchorId, anchoredPaths);
+      }}
+      for (const [anchorId, paths] of groupedAnchors) {{
+        const bounds = visibleTiles.get(anchorId);
         const robot = document.createElement("span");
         robot.className = "activity-robot";
-        robot.title = `${{id.slice(5)}} is being edited`;
+        robot.dataset.anchor = anchorId;
+        robot.dataset.fallback = String(!anchorId.startsWith("file:"));
+        robot.title = `${{paths.join("\\n")}}${{paths.length === 1 ? " is" : " are"}} being edited`;
         robot.style.left = `${{Math.max(30, Math.min(shellBounds.width - 30, bounds.left - shellBounds.left + bounds.width / 2))}}px`;
         robot.style.top = `${{Math.max(30, Math.min(shellBounds.height - 30, bounds.top - shellBounds.top + bounds.height / 2))}}px`;
         robot.innerHTML = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
@@ -698,8 +749,17 @@ def _html_document(
     }}
 
     function closeFilePanel() {{
+      if (filePanelHistoryActive) {{
+        window.history.back();
+        return;
+      }}
+      hideFilePanel();
+    }}
+
+    function hideFilePanel() {{
       fileInspector.hidden = true;
       selectedFile = null;
+      filePanelHistoryActive = false;
       diffOutput.replaceChildren();
       diffNote.hidden = true;
     }}
@@ -735,6 +795,10 @@ def _html_document(
 
     async function openFilePanel(path, status) {{
       if (!liveUpdates || !positionFileInspector()) return;
+      if (fileInspector.hidden) {{
+        window.history.pushState({{ aikimapFile: true }}, "", window.location.href);
+        filePanelHistoryActive = true;
+      }}
       const snapshot = snapshots[currentSnapshotIndex];
       selectedFile = {{ path, snapshot }};
       fileInspector.dataset.status = status;
@@ -852,6 +916,15 @@ def _html_document(
     newerButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex - 1));
     olderButton.addEventListener("click", () => showSnapshot(historyStart + currentHistoryIndex + 1));
     showDiffButton.addEventListener("click", showSelectedDiff);
+    fileInspectorBack.addEventListener("click", closeFilePanel);
+    activityStatus.addEventListener("click", () => {{
+      const path = activePaths[0];
+      if (!path) return;
+      const trace = graph.data[currentSnapshotIndex];
+      const fileIndex = trace.ids?.indexOf(`file:${{path}}`) ?? -1;
+      const status = fileIndex >= 0 ? trace.customdata?.[fileIndex]?.[1] : "changed";
+      openFilePanel(path, status);
+    }});
     graph.on("plotly_click", event => {{
       const point = event.points?.[0];
       if (point?.customdata?.[4] === "file") {{
@@ -867,6 +940,9 @@ def _html_document(
     graph.on("plotly_afterplot", () => window.requestAnimationFrame(positionActivityRobots));
     document.addEventListener("keydown", event => {{
       if (event.key === "Escape" && !fileInspector.hidden) closeFilePanel();
+    }});
+    window.addEventListener("popstate", () => {{
+      if (!fileInspector.hidden) hideFilePanel();
     }});
     if (liveUpdates) {{
       refreshSessionStatus();

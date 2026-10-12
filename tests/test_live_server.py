@@ -52,9 +52,15 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'id="session-indicator"', application.document)
         self.assertIn(b'id="activity-status"', application.document)
         self.assertIn(b"EDITING", application.document)
+        self.assertIn(b"View file", application.document)
         self.assertIn(b'activity.paths.join("\\n")', application.document)
         self.assertIn(b'id="activity-robots"', application.document)
         self.assertIn(b'className = "activity-robot"', application.document)
+        self.assertIn(b'candidates.push(`dir:${parts.join("/")}`)', application.document)
+        self.assertIn(b'paths.join("\\n")', application.document)
+        self.assertIn(b'id="file-inspector-back"', application.document)
+        self.assertIn(b"window.history.pushState", application.document)
+        self.assertIn(b'window.addEventListener("popstate"', application.document)
 
     def test_changed_working_tree_returns_new_payload_without_changing_git(self) -> None:
         application = LiveApplication(SnapshotBuilder(self.repository))

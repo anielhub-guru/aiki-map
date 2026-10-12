@@ -170,10 +170,13 @@ def main(arguments: list[str] | None = None) -> int:
 
         watcher = Thread(target=watch_agent, daemon=True)
         watcher.start()
-    actions = WindowActions(process, session, stop_agent=stop_process)
+    actions = WindowActions(process, session)
+    application.close_callback = actions.end_session
 
     try:
-        native_window = show_corner_window(url, actions, options.browser)
+        native_window = show_corner_window(
+            url, actions, options.browser, application.close_token
+        )
         if not native_window:
             print(url)
             print("Browser fallback active; press Ctrl+C to stop monitoring.")

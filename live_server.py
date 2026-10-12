@@ -5,7 +5,9 @@ from __future__ import annotations
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import secrets
 from threading import Lock
+from typing import Callable
 from time import perf_counter
 from urllib.parse import parse_qs, urlparse
 import webbrowser
@@ -43,6 +45,8 @@ class LiveApplication:
     ) -> None:
         self.builder = builder
         self.session = session
+        self.close_token = secrets.token_urlsafe(32)
+        self.close_callback: Callable[[], None] | None = None
         self._lock = Lock()
         snapshots = self.builder.load()
         self.document = render_visualization(snapshots, live_updates=True).encode()
@@ -167,6 +171,19 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
     """Create a localhost-only HTTP server on an available port."""
 
     class RequestHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if self.path != "/api/session/close":
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if not secrets.compare_digest(
+                self.headers.get("X-AikiMap-Token", ""), application.close_token
+            ) or application.close_callback is None:
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return
+            self._send_bytes(HTTPStatus.OK, b"{}", "application/json")
+            self.wfile.flush()
+            application.close_callback()
+
         def do_GET(self) -> None:
             request = urlparse(self.path)
             if request.path in {"/", "/visualizer.html"}:

@@ -45,6 +45,10 @@ class LiveServerTests(unittest.TestCase):
         )
         self.assertIn(b"window.aikimapSetDisplayMode", application.document)
         self.assertIn(b"body.ambient-mode .legend", application.document)
+        self.assertIn(
+            b'grid-template-areas: "header" "activity" "map" "legend"',
+            application.document,
+        )
         self.assertLess(
             application.document.index(b'class="chart-shell"'),
             application.document.index(b'class="legend"'),
@@ -59,6 +63,11 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'candidates.push(`dir:${parts.join("/")}`)', application.document)
         self.assertIn(b'paths.join("\\n")', application.document)
         self.assertIn(b'id="file-inspector-back"', application.document)
+        self.assertIn(b'id="history-branch-control"', application.document)
+        self.assertIn(
+            b"branchControl.hidden = selectableBranches.length === 0",
+            application.document,
+        )
         self.assertIn(b"window.history.pushState", application.document)
         self.assertIn(b'window.addEventListener("popstate"', application.document)
 
@@ -78,6 +87,14 @@ class LiveServerTests(unittest.TestCase):
         self.assertEqual(state["snapshots"][0]["detail"], "")
         self.assertNotEqual(state["version"], application.initial_version)
         self.assertEqual(self._status(), status_before)
+
+    def test_only_current_branch_is_not_offered_as_history(self) -> None:
+        application = LiveApplication(SnapshotBuilder(self.repository))
+
+        state = json.loads(application.state_payload("outdated"))
+
+        self.assertEqual(len(state["branches"]), 1)
+        self.assertFalse(state["branches"][0]["selectable"])
 
     def test_repeated_edit_of_modified_file_emits_fresh_activity(self) -> None:
         application = LiveApplication(SnapshotBuilder(self.repository))
@@ -136,6 +153,14 @@ class LiveServerTests(unittest.TestCase):
         self.assertEqual([branch["name"] for branch in payload["branches"] if branch["current"]], [current])
         self.assertIn("origin/feature/map", [branch["name"] for branch in payload["branches"]])
         self.assertNotIn("origin/HEAD", [branch["name"] for branch in payload["branches"]])
+        self.assertIn(
+            "feature/map",
+            [branch["name"] for branch in payload["branches"] if branch["selectable"]],
+        )
+        self.assertNotIn(
+            "origin/feature/map",
+            [branch["name"] for branch in payload["branches"] if branch["selectable"]],
+        )
         details = json.loads(application.file_payload(
             "commit", payload["snapshots"][1]["revision"], "feature.py", True,
             "refs/heads/feature/map",

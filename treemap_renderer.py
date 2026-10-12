@@ -146,7 +146,7 @@ def visualization_payload(
     snapshot_list = list(snapshots)
     return {
         "version": visualization_version(snapshot_list),
-        "branches": [branch.__dict__ for branch in snapshot_list[0].branches],
+        "branches": _branch_payload(snapshot_list[0].branches),
         "historyRef": snapshot_list[0].history_ref,
         "activity": {
             "paths": list(snapshot_list[0].activity_paths),
@@ -255,7 +255,7 @@ def _html_document(
     snapshot_payload = json.dumps(payload).replace("</", "<\\/")
     live_updates_json = json.dumps(live_updates)
     version_json = json.dumps(initial_version)
-    branches_json = json.dumps([branch.__dict__ for branch in snapshots[0].branches]).replace("</", "<\\/")
+    branches_json = json.dumps(_branch_payload(snapshots[0].branches)).replace("</", "<\\/")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -280,14 +280,15 @@ def _html_document(
     html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); }}
     body {{ font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; }}
     button {{ font: inherit; }}
-    .page {{ display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; height: 100vh; padding: 16px; }}
-    .header {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }}
+    .page {{ display: grid; grid-template-areas: "header" "activity" "map" "legend"; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; height: 100vh; padding: 16px; }}
+    .header {{ grid-area: header; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }}
     .window-drag-region {{ min-width: 0; cursor: grab; user-select: none; }}
     .window-drag-region:active {{ cursor: grabbing; }}
     .brand-row {{ display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }}
     .branch-bar {{ display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 7px; font-size: 11px; color: var(--muted); cursor: default; }}
     .branch-name {{ color: var(--accent); font-weight: 750; }}
     .branch-bar label {{ display: inline-flex; align-items: center; gap: 5px; }}
+    .branch-bar label[hidden] {{ display: none; }}
     .branch-bar select {{ max-width: 200px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }}
     .brand-signal {{ width: 9px; height: 9px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }}
     h1 {{ margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.035em; line-height: 1; }}
@@ -303,7 +304,7 @@ def _html_document(
     .commit-byline {{ margin-top: 3px; color: var(--muted); font-size: 12px; }}
     .live-status {{ display: inline-block; margin-top: 4px; color: var(--danger); font-size: 11px; font-weight: 700; }}
     .live-status[hidden] {{ display: none; }}
-    .activity-status {{ display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px 6px 8px; border: 1px solid #E2BD58; border-radius: 12px; background: #FFF4C7; color: #60470A; font-size: 10px; font-weight: 750; text-align: left; box-shadow: 0 5px 16px rgba(96, 71, 10, .12); cursor: pointer; }}
+    .activity-status {{ grid-area: activity; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px 6px 8px; border: 1px solid #E2BD58; border-radius: 12px; background: #FFF4C7; color: #60470A; font-size: 10px; font-weight: 750; text-align: left; box-shadow: 0 5px 16px rgba(96, 71, 10, .12); cursor: pointer; }}
     .activity-status[hidden] {{ display: none; }}
     .activity-pulse {{ width: 8px; height: 8px; border-radius: 999px; background: #D99B16; animation: editing-pulse 1.15s ease-out infinite; }}
     .activity-status strong {{ overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }}
@@ -325,10 +326,10 @@ def _html_document(
     .header-actions button.active {{ border-color: var(--ink); background: var(--ink); color: #FFFFFF; }}
     .header-actions button:disabled {{ cursor: not-allowed; opacity: .42; }}
     .commit-nav[hidden] {{ display: none; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 7px 16px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .68); }}
+    .legend {{ grid-area: legend; display: flex; flex-wrap: wrap; gap: 7px 16px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .68); }}
     .legend-item {{ display: inline-flex; align-items: center; gap: 6px; color: #56615D; font-size: 11px; white-space: nowrap; }}
     .legend-swatch {{ width: 10px; height: 10px; border: 1px solid rgba(24, 33, 31, .14); border-radius: 3px; }}
-    .chart-shell {{ position: relative; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }}
+    .chart-shell {{ grid-area: map; position: relative; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }}
     #aiki-map {{ width: 100%; height: 100%; }}
     .activity-robots {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
     .activity-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); animation: robot-bob 1.25s ease-in-out infinite; }}
@@ -384,7 +385,7 @@ def _html_document(
     .file-inspector.cramped .file-inspector-path,
     .file-inspector.cramped .file-facts dt:nth-of-type(2),
     .file-inspector.cramped #file-comparison {{ display: none; }}
-    body.ambient-mode .page {{ grid-template-rows: auto auto minmax(0, 1fr); gap: 9px; padding: 10px; }}
+    body.ambient-mode .page {{ grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 9px; padding: 10px; }}
     body.ambient-mode .header {{ grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }}
     body.ambient-mode .brand-row {{ margin-bottom: 5px; }}
     body.ambient-mode h1 {{ font-size: 16px; }}
@@ -395,8 +396,10 @@ def _html_document(
     body.ambient-mode .commit-line code {{ font-size: 10px; }}
     body.ambient-mode .activity-status {{ min-height: 36px; padding-block: 3px; }}
     body.ambient-mode .commit-byline,
-    body.ambient-mode .header-actions,
-    body.ambient-mode .legend {{ display: none; }}
+    body.ambient-mode .header-actions {{ display: none; }}
+    body.ambient-mode .legend {{ gap: 4px 8px; padding: 5px 7px; }}
+    body.ambient-mode .legend-item {{ gap: 4px; font-size: 8px; }}
+    body.ambient-mode .legend-swatch {{ width: 8px; height: 8px; }}
     body.ambient-mode .header-stack {{ justify-content: flex-start; }}
     body.ambient-mode .session-toolbar {{ border-color: transparent; background: transparent; box-shadow: none; backdrop-filter: none; }}
     body.ambient-mode .session-toolbar button {{ min-height: 26px; padding: 0 7px; font-size: 10px; }}
@@ -415,7 +418,9 @@ def _html_document(
       .directory-activity {{ display: none; }}
       .activity-status {{ min-height: 36px; border-radius: 10px; }}
       .activity-action {{ display: none; }}
-      .legend {{ display: none; }}
+      .legend {{ gap: 4px 8px; padding: 5px 7px; }}
+      .legend-item {{ gap: 4px; font-size: 8px; }}
+      .legend-swatch {{ width: 8px; height: 8px; }}
       .activity-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
       .activity-robot svg {{ width: 39px; height: 39px; }}
       .file-inspector-hint {{ display: none; }}
@@ -434,7 +439,7 @@ def _html_document(
         </div>
         <div class="branch-bar">
           <span class="branch-name" id="branch-name"></span>
-          <label>History branch <select id="branch-picker" aria-label="History branch"></select></label>
+          <label id="history-branch-control">History branch <select id="branch-picker" aria-label="History branch"></select></label>
         </div>
         <div class="eyebrow" id="view-label">{escape(first["label"])}</div>
         <div class="commit-line"><code id="snapshot-key">{escape(first["key"])}</code> — <strong id="snapshot-message">{escape(first["message"])}</strong></div>
@@ -523,6 +528,7 @@ def _html_document(
     const directoryActivity = document.getElementById("directory-activity");
     const sessionIndicator = document.getElementById("session-indicator");
     const branchName = document.getElementById("branch-name");
+    const branchControl = document.getElementById("history-branch-control");
     const branchPicker = document.getElementById("branch-picker");
     const chartShell = document.querySelector(".chart-shell");
     const activityRobots = document.getElementById("activity-robots");
@@ -546,18 +552,20 @@ def _html_document(
 
     function updateBranchControls(branches, selectedRef) {{
       const current = branches.find(branch => branch.current);
+      const selectableBranches = branches.filter(branch => branch.selectable);
       branchName.textContent = `⑂ ${{current?.name ?? "Detached HEAD"}}`;
       branchName.title = "Checked-out branch (Working view)";
+      branchControl.hidden = selectableBranches.length === 0;
       branchPicker.replaceChildren(new Option(current ? `${{current.name}} · current` : "Detached HEAD", ""));
       for (const remote of [false, true]) {{
         const group = document.createElement("optgroup");
         group.label = remote ? "Remote branches" : "Local branches";
-        for (const branch of branches.filter(branch => branch.remote === remote && !branch.current)) {{
+        for (const branch of selectableBranches.filter(branch => branch.remote === remote)) {{
           group.append(new Option(branch.name, branch.ref));
         }}
         if (group.children.length) branchPicker.append(group);
       }}
-      historyRef = selectedRef;
+      historyRef = selectableBranches.some(branch => branch.ref === selectedRef) ? selectedRef : "";
       branchPicker.value = historyRef;
       branchPicker.disabled = !liveUpdates;
     }}
@@ -961,6 +969,27 @@ def _display_date(authored_at: str) -> str:
     except ValueError:
         return authored_at
     return f"{value.day} {value.strftime('%B %Y')}"
+
+
+def _branch_payload(branches: Iterable[BranchInfo]) -> list[dict[str, object]]:
+    branch_list = list(branches)
+    local_names = {branch.name for branch in branch_list if not branch.remote}
+    remote_names: set[str] = set()
+    payload = []
+
+    for branch in branch_list:
+        selectable = not branch.current
+        if branch.remote:
+            logical_name = branch.name.split("/", 1)[-1]
+            selectable = (
+                selectable
+                and logical_name not in local_names
+                and logical_name not in remote_names
+            )
+            remote_names.add(logical_name)
+        payload.append({**branch.__dict__, "selectable": selectable})
+
+    return payload
 
 
 def _snapshot_payload(

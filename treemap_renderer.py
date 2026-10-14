@@ -331,14 +331,23 @@ def _html_document(
     .legend-swatch {{ width: 10px; height: 10px; border: 1px solid rgba(24, 33, 31, .14); border-radius: 3px; }}
     .chart-shell {{ grid-area: map; position: relative; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }}
     #aiki-map {{ width: 100%; height: 100%; }}
-    .activity-robots {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
-    .activity-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); animation: robot-bob 1.25s ease-in-out infinite; }}
+    .robot-overlay {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
+    .review-robots {{ z-index: 11; }}
+    .activity-robot, .change-pulse-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); }}
+    .activity-robot {{ animation: robot-bob 1.25s ease-in-out infinite; }}
     .activity-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
-    .activity-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
+    .activity-robot svg, .change-pulse-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
     .activity-robot .robot-eyes {{ animation: robot-blink 3.2s ease-in-out infinite; transform-origin: center; }}
+    .change-pulse-robot {{ opacity: 0; animation: change-pulse-pop 900ms cubic-bezier(.2, .85, .3, 1) var(--pulse-delay, 0ms) both; }}
+    .change-pulse-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
     @keyframes robot-bob {{ 0%, 100% {{ translate: 0 0; }} 50% {{ translate: 0 -3px; }} }}
     @keyframes robot-blink {{ 0%, 44%, 52%, 100% {{ transform: scaleY(1); }} 48% {{ transform: scaleY(.15); }} }}
-    @media (prefers-reduced-motion: reduce) {{ .activity-robot, .activity-robot .robot-eyes {{ animation: none; }} }}
+    @keyframes change-pulse-pop {{ 0% {{ opacity: 0; scale: .62; }} 22%, 68% {{ opacity: 1; scale: 1.08; }} 100% {{ opacity: 0; scale: .92; }} }}
+    @media (prefers-reduced-motion: reduce) {{
+      .activity-robot, .activity-robot .robot-eyes {{ animation: none; }}
+      .change-pulse-robot {{ animation: change-pulse-fade 700ms ease var(--pulse-delay, 0ms) both; }}
+    }}
+    @keyframes change-pulse-fade {{ 0%, 100% {{ opacity: 0; }} 18%, 72% {{ opacity: 1; }} }}
     /*
       Legacy fixed sidebar retained for a possible design reversal.
       .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
@@ -421,8 +430,8 @@ def _html_document(
       .legend {{ gap: 4px 8px; padding: 5px 7px; }}
       .legend-item {{ gap: 4px; font-size: 9px; }}
       .legend-swatch {{ width: 9px; height: 9px; }}
-      .activity-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
-      .activity-robot svg {{ width: 39px; height: 39px; }}
+      .activity-robot, .change-pulse-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
+      .activity-robot svg, .change-pulse-robot svg {{ width: 39px; height: 39px; }}
       .file-inspector-hint {{ display: none; }}
     }}
   </style>
@@ -468,7 +477,8 @@ def _html_document(
     </button>
     <section class="chart-shell">
       {plot_html}
-      <div class="activity-robots" id="activity-robots" aria-hidden="true"></div>
+      <div class="robot-overlay activity-robots" id="activity-robots" aria-hidden="true"></div>
+      <div class="robot-overlay review-robots" id="review-robots" aria-hidden="true"></div>
       <aside class="file-inspector" id="file-inspector" aria-labelledby="file-inspector-title" hidden>
         <div class="file-inspector-toolbar">
           <button class="file-inspector-back" id="file-inspector-back" type="button">← Back to map</button>
@@ -532,6 +542,7 @@ def _html_document(
     const branchPicker = document.getElementById("branch-picker");
     const chartShell = document.querySelector(".chart-shell");
     const activityRobots = document.getElementById("activity-robots");
+    const reviewRobots = document.getElementById("review-robots");
     const fileInspector = document.getElementById("file-inspector");
     const fileInspectorBack = document.getElementById("file-inspector-back");
     const showDiffButton = document.getElementById("show-diff");
@@ -547,9 +558,23 @@ def _html_document(
     let refreshInProgress = false;
     let selectedFile = null;
     let activityTimer = null;
+    let changePulseTimer = null;
+    let changePulseRequest = 0;
     let activePaths = [];
     let historyRef = "";
     let filePanelHistoryActive = false;
+    const MAX_CHANGE_PULSE_ROBOTS = 24;
+    const CHANGE_PULSE_STAGGER_MS = 45;
+    const CHANGE_PULSE_STAGGER_CAP_MS = 360;
+    const CHANGE_PULSE_LIFETIME_MS = 1300;
+    const aikiBotFace = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
+      <path d="M16 4v4" stroke="#23675D" stroke-width="2.3" stroke-linecap="round"/>
+      <circle cx="16" cy="3.5" r="2" fill="#E5A729"/>
+      <rect x="3" y="8" width="26" height="20" rx="8" fill="#287D70"/>
+      <rect x="6" y="11" width="20" height="14" rx="5" fill="#F6FFFA"/>
+      <g class="robot-eyes" fill="#23675D"><circle cx="12" cy="17" r="2"/><circle cx="20" cy="17" r="2"/></g>
+      <path d="M12 21c2 2 6 2 8 0" stroke="#D88F27" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </svg>`;
 
     function apiFetch(resource, options = {{}}) {{
       const headers = new Headers(options.headers ?? {{}});
@@ -578,9 +603,7 @@ def _html_document(
     }}
     updateBranchControls({branches_json}, "");
 
-    function positionActivityRobots() {{
-      activityRobots.replaceChildren();
-      if (currentSnapshotIndex !== 0 || !activePaths.length) return;
+    function visibleTileBounds() {{
       const shellBounds = chartShell.getBoundingClientRect();
       const visibleTiles = new Map();
       for (const slice of graph.querySelectorAll("g.slice")) {{
@@ -592,14 +615,23 @@ def _html_document(
         if (!bounds.width || !bounds.height) continue;
         visibleTiles.set(id, bounds);
       }}
+      return {{ shellBounds, visibleTiles }};
+    }}
+
+    function groupPathsByVisibleAnchor(paths, visibleTiles, topLevelOnly = false) {{
       const groupedAnchors = new Map();
-      for (const path of activePaths) {{
+      for (const path of paths) {{
         const parts = path.split("/");
-        const candidates = [`file:${{path}}`];
-        parts.pop();
-        while (parts.length) {{
-          candidates.push(`dir:${{parts.join("/")}}`);
+        const candidates = [];
+        if (topLevelOnly) {{
+          if (parts.length > 1) candidates.push(`dir:${{parts[0]}}`);
+        }} else {{
+          candidates.push(`file:${{path}}`);
           parts.pop();
+          while (parts.length) {{
+            candidates.push(`dir:${{parts.join("/")}}`);
+            parts.pop();
+          }}
         }}
         candidates.push("repo:/");
         const anchorId = candidates.find(candidate => visibleTiles.has(candidate));
@@ -608,25 +640,99 @@ def _html_document(
         anchoredPaths.push(path);
         groupedAnchors.set(anchorId, anchoredPaths);
       }}
+      return groupedAnchors;
+    }}
+
+    function addRobot(overlay, className, anchorId, paths, bounds, shellBounds, title) {{
+      const robot = document.createElement("span");
+      robot.className = className;
+      robot.dataset.anchor = anchorId;
+      robot.dataset.fallback = String(!anchorId.startsWith("file:"));
+      robot.title = title;
+      robot.style.left = `${{Math.max(30, Math.min(shellBounds.width - 30, bounds.left - shellBounds.left + bounds.width / 2))}}px`;
+      robot.style.top = `${{Math.max(30, Math.min(shellBounds.height - 30, bounds.top - shellBounds.top + bounds.height / 2))}}px`;
+      robot.innerHTML = aikiBotFace;
+      overlay.append(robot);
+      return robot;
+    }}
+
+    function positionActivityRobots() {{
+      activityRobots.replaceChildren();
+      if (currentSnapshotIndex !== 0 || !activePaths.length) return;
+      const {{ shellBounds, visibleTiles }} = visibleTileBounds();
+      const groupedAnchors = groupPathsByVisibleAnchor(activePaths, visibleTiles);
       for (const [anchorId, paths] of groupedAnchors) {{
         const bounds = visibleTiles.get(anchorId);
-        const robot = document.createElement("span");
-        robot.className = "activity-robot";
-        robot.dataset.anchor = anchorId;
-        robot.dataset.fallback = String(!anchorId.startsWith("file:"));
-        robot.title = `${{paths.join("\\n")}}${{paths.length === 1 ? " is" : " are"}} being edited`;
-        robot.style.left = `${{Math.max(30, Math.min(shellBounds.width - 30, bounds.left - shellBounds.left + bounds.width / 2))}}px`;
-        robot.style.top = `${{Math.max(30, Math.min(shellBounds.height - 30, bounds.top - shellBounds.top + bounds.height / 2))}}px`;
-        robot.innerHTML = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
-          <path d="M16 4v4" stroke="#23675D" stroke-width="2.3" stroke-linecap="round"/>
-          <circle cx="16" cy="3.5" r="2" fill="#E5A729"/>
-          <rect x="3" y="8" width="26" height="20" rx="8" fill="#287D70"/>
-          <rect x="6" y="11" width="20" height="14" rx="5" fill="#F6FFFA"/>
-          <g class="robot-eyes" fill="#23675D"><circle cx="12" cy="17" r="2"/><circle cx="20" cy="17" r="2"/></g>
-          <path d="M12 21c2 2 6 2 8 0" stroke="#D88F27" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-        </svg>`;
-        activityRobots.append(robot);
+        addRobot(
+          activityRobots,
+          "activity-robot",
+          anchorId,
+          paths,
+          bounds,
+          shellBounds,
+          `${{paths.join("\\n")}}${{paths.length === 1 ? " is" : " are"}} being edited`,
+        );
       }}
+    }}
+
+    function changedPathsForCurrentSnapshot() {{
+      const trace = graph.data[currentSnapshotIndex];
+      return [...new Set((trace?.customdata ?? [])
+        .filter(item => item?.[4] === "file" && item?.[1] !== "unchanged")
+        .map(item => item[0]))];
+    }}
+
+    function showChangePulse(request) {{
+      if (request !== changePulseRequest || !fileInspector.hidden) return;
+      const changedPaths = changedPathsForCurrentSnapshot();
+      if (!changedPaths.length) return;
+      const {{ shellBounds, visibleTiles }} = visibleTileBounds();
+      let groupedAnchors = groupPathsByVisibleAnchor(
+        changedPaths,
+        visibleTiles,
+        changedPaths.length > MAX_CHANGE_PULSE_ROBOTS,
+      );
+      if (groupedAnchors.size > MAX_CHANGE_PULSE_ROBOTS) {{
+        const entries = [...groupedAnchors];
+        const retained = entries.slice(0, MAX_CHANGE_PULSE_ROBOTS - 1);
+        const overflowPaths = entries.slice(MAX_CHANGE_PULSE_ROBOTS - 1).flatMap(([, paths]) => paths);
+        groupedAnchors = new Map(retained);
+        const summaryAnchor = visibleTiles.has("repo:/") ? "repo:/" : retained[0]?.[0];
+        if (summaryAnchor) {{
+          groupedAnchors.set(summaryAnchor, [
+            ...(groupedAnchors.get(summaryAnchor) ?? []),
+            ...overflowPaths,
+          ]);
+        }}
+      }}
+      let index = 0;
+      for (const [anchorId, paths] of groupedAnchors) {{
+        const bounds = visibleTiles.get(anchorId);
+        if (!bounds) continue;
+        const robot = addRobot(
+          reviewRobots,
+          "change-pulse-robot",
+          anchorId,
+          paths,
+          bounds,
+          shellBounds,
+          `AikiBot Change Pulse: ${{paths.length}} changed ${{paths.length === 1 ? "file" : "files"}}`,
+        );
+        robot.style.setProperty(
+          "--pulse-delay",
+          `${{Math.min(index * CHANGE_PULSE_STAGGER_MS, CHANGE_PULSE_STAGGER_CAP_MS)}}ms`,
+        );
+        index += 1;
+      }}
+      window.clearTimeout(changePulseTimer);
+      changePulseTimer = window.setTimeout(() => reviewRobots.replaceChildren(), CHANGE_PULSE_LIFETIME_MS);
+    }}
+
+    function scheduleChangePulse() {{
+      const request = ++changePulseRequest;
+      window.clearTimeout(changePulseTimer);
+      reviewRobots.replaceChildren();
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => showChangePulse(request)));
     }}
 
     window.aikimapSetDisplayMode = mode => {{
@@ -637,6 +743,7 @@ def _html_document(
         : {{ "margin.t": 32, "margin.r": 6, "margin.b": 6, "margin.l": 6 }}
       );
       window.requestAnimationFrame(() => Plotly.Plots.resize(graph));
+      if (!compact) scheduleChangePulse();
     }};
 
     async function refreshSessionStatus() {{
@@ -684,6 +791,7 @@ def _html_document(
       updateSnapshotMetadata(index);
       Plotly.Plots.resize(graph);
       window.requestAnimationFrame(positionActivityRobots);
+      scheduleChangePulse();
     }}
 
     function updateActivity(activity) {{
@@ -753,6 +861,7 @@ def _html_document(
         closeFilePanel();
         updateSnapshotMetadata(activeIndex);
         window.requestAnimationFrame(positionActivityRobots);
+        if (selectBranchTip) scheduleChangePulse();
         liveStatus.hidden = true;
       }} catch (error) {{
         liveStatus.textContent = "Live refresh unavailable — retrying";
@@ -950,6 +1059,9 @@ def _html_document(
     }});
     window.addEventListener("resize", () => {{
       if (selectedFile && !positionFileInspector()) closeFilePanel();
+      changePulseRequest += 1;
+      window.clearTimeout(changePulseTimer);
+      reviewRobots.replaceChildren();
       window.requestAnimationFrame(positionActivityRobots);
     }});
     graph.on("plotly_afterplot", () => window.requestAnimationFrame(positionActivityRobots));
@@ -964,6 +1076,7 @@ def _html_document(
       window.setInterval(refreshState, 2500);
       window.setInterval(refreshSessionStatus, 2500);
     }}
+    scheduleChangePulse();
   </script>
 </body>
 </html>

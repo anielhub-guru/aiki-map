@@ -26,6 +26,7 @@ from snapshot_builder import SnapshotBuilder
 from session import SessionState
 from treemap_renderer import (
     render_visualization,
+    snapshot_trace_payload,
     visualization_payload,
     visualization_version,
 )
@@ -59,7 +60,7 @@ class LiveApplication:
         self.close_token = secrets.token_urlsafe(32)
         self.close_callback: Callable[[], None] | None = None
         self._lock = Lock()
-        snapshots = self.builder.load()
+        snapshots = self.builder.load(hydrate_history=False)
         self.document = render_visualization(snapshots, live_updates=True).encode()
         self.initial_version = visualization_version(snapshots)
         self.baseline_payload = json.dumps(
@@ -72,12 +73,26 @@ class LiveApplication:
 
     def state_payload(self, client_version: str, history_ref: str = "") -> bytes | None:
         with self._lock:
-            snapshots = self.builder.load(history_ref)
+            snapshots = self.builder.load(history_ref, hydrate_history=False)
             version = visualization_version(snapshots)
             if version == client_version:
                 return None
             return json.dumps(
                 visualization_payload(snapshots),
+                cls=PlotlyJSONEncoder,
+                separators=(",", ":"),
+            ).encode()
+
+    def snapshot_payload(
+        self,
+        kind: str,
+        revision: str,
+        history_ref: str = "",
+    ) -> bytes:
+        with self._lock:
+            snapshot = self.builder.load_snapshot(kind, revision, history_ref)
+            return json.dumps(
+                {"trace": snapshot_trace_payload(snapshot)},
                 cls=PlotlyJSONEncoder,
                 separators=(",", ":"),
             ).encode()
@@ -99,8 +114,7 @@ class LiveApplication:
         history_ref: str = "",
     ) -> bytes:
         with self._lock:
-            snapshots = self.builder.load(history_ref)
-            snapshot = self._select_snapshot(snapshots, kind, revision)
+            snapshot = self.builder.load_snapshot(kind, revision, history_ref)
             node = next(
                 (
                     candidate
@@ -164,22 +178,6 @@ class LiveApplication:
                 separators=(",", ":"),
             ).encode()
 
-    @staticmethod
-    def _select_snapshot(
-        snapshots: list[object],
-        kind: str,
-        revision: str,
-    ) -> object:
-        if kind not in {"working", "commit"}:
-            raise ValueError("Unsupported snapshot kind")
-        for snapshot in snapshots:
-            if (
-                snapshot.kind == kind
-                and snapshot.commit.full_hash == revision
-            ):
-                return snapshot
-        raise ValueError("The selected snapshot is no longer available")
-
 
 def create_server(application: LiveApplication) -> ThreadingHTTPServer:
     """Create a localhost-only HTTP server on an available port."""
@@ -241,6 +239,9 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                     "application/json; charset=utf-8",
                 )
                 return
+            if request.path == "/api/snapshot":
+                self._send_snapshot(parse_qs(request.query))
+                return
             if request.path == "/api/file":
                 self._send_file(parse_qs(request.query))
                 return
@@ -261,6 +262,33 @@ def create_server(application: LiveApplication) -> ThreadingHTTPServer:
                 self.send_response(HTTPStatus.NOT_MODIFIED)
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
+                return
+            self._send_bytes(
+                HTTPStatus.OK,
+                payload,
+                "application/json; charset=utf-8",
+            )
+
+        def _send_snapshot(self, query: dict[str, list[str]]) -> None:
+            try:
+                payload = application.snapshot_payload(
+                    kind=query.get("kind", [""])[0],
+                    revision=query.get("revision", [""])[0],
+                    history_ref=query.get("branch", [""])[0],
+                )
+            except ValueError as error:
+                self._send_bytes(
+                    HTTPStatus.BAD_REQUEST,
+                    json.dumps({"error": str(error)}).encode(),
+                    "application/json; charset=utf-8",
+                )
+                return
+            except (GitRepositoryError, OSError) as error:
+                self._send_bytes(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    json.dumps({"error": str(error)}).encode(),
+                    "application/json; charset=utf-8",
+                )
                 return
             self._send_bytes(
                 HTTPStatus.OK,

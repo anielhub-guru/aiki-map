@@ -111,7 +111,8 @@ def render_visualization(
         raise ValueError("At least one commit snapshot is required")
 
     figure = go.Figure()
-    for index, snapshot in enumerate(snapshot_list):
+    rendered_snapshots = snapshot_list[:1] if live_updates else snapshot_list
+    for index, snapshot in enumerate(rendered_snapshots):
         figure.add_trace(_treemap_trace(snapshot, visible=index == 0))
 
     figure.update_layout(
@@ -153,11 +154,13 @@ def visualization_payload(
             "revision": snapshot_list[0].activity_revision,
         },
         "snapshots": _snapshot_payload(snapshot_list),
-        "traces": [
-            _treemap_trace(snapshot, visible=index == 0).to_plotly_json()
-            for index, snapshot in enumerate(snapshot_list)
-        ],
+        "traces": [_treemap_trace(snapshot_list[0], visible=True).to_plotly_json()],
     }
+
+
+def snapshot_trace_payload(snapshot: VisualizationSnapshot) -> dict[str, object]:
+    """Return one Plotly trace for on-demand live history navigation."""
+    return _treemap_trace(snapshot, visible=True).to_plotly_json()
 
 
 def visualization_version(snapshots: Iterable[VisualizationSnapshot]) -> str:
@@ -333,21 +336,19 @@ def _html_document(
     #aiki-map {{ width: 100%; height: 100%; }}
     .robot-overlay {{ position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; }}
     .review-robots {{ z-index: 11; }}
-    .activity-robot, .change-pulse-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); }}
+    .activity-robot, .changed-robot {{ position: absolute; display: grid; place-items: center; width: 56px; height: 56px; border: 3px solid #FFFFFF; border-radius: 18px; background: #DDF5ED; box-shadow: 0 5px 18px rgba(19, 79, 71, .4); transform: translate(-50%, -50%); }}
     .activity-robot {{ animation: robot-bob 1.25s ease-in-out infinite; }}
     .activity-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
-    .activity-robot svg, .change-pulse-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
+    .activity-robot svg, .changed-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
     .activity-robot .robot-eyes {{ animation: robot-blink 3.2s ease-in-out infinite; transform-origin: center; }}
-    .change-pulse-robot {{ opacity: 0; animation: change-pulse-pop 1250ms cubic-bezier(.2, .85, .3, 1) var(--pulse-delay, 0ms) both; }}
-    .change-pulse-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
+    .changed-robot {{ width: 46px; height: 46px; border-radius: 15px; background: #F2ECF8; box-shadow: 0 0 0 2px #7F6A9B, 0 5px 16px rgba(50, 37, 70, .26); }}
+    .changed-robot svg {{ width: 37px; height: 37px; }}
+    .changed-robot[data-fallback="true"] {{ border-color: #F2ECF8; }}
     @keyframes robot-bob {{ 0%, 100% {{ translate: 0 0; }} 50% {{ translate: 0 -3px; }} }}
     @keyframes robot-blink {{ 0%, 44%, 52%, 100% {{ transform: scaleY(1); }} 48% {{ transform: scaleY(.15); }} }}
-    @keyframes change-pulse-pop {{ 0% {{ opacity: 1; scale: .72; }} 18%, 72% {{ opacity: 1; scale: 1.1; }} 100% {{ opacity: 0; scale: .94; }} }}
     @media (prefers-reduced-motion: reduce) {{
       .activity-robot, .activity-robot .robot-eyes {{ animation: none; }}
-      .change-pulse-robot {{ animation: change-pulse-fade 1100ms ease var(--pulse-delay, 0ms) both; }}
     }}
-    @keyframes change-pulse-fade {{ 0%, 72% {{ opacity: 1; }} 100% {{ opacity: 0; }} }}
     /*
       Legacy fixed sidebar retained for a possible design reversal.
       .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
@@ -430,8 +431,10 @@ def _html_document(
       .legend {{ gap: 4px 8px; padding: 5px 7px; }}
       .legend-item {{ gap: 4px; font-size: 9px; }}
       .legend-swatch {{ width: 9px; height: 9px; }}
-      .activity-robot, .change-pulse-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
-      .activity-robot svg, .change-pulse-robot svg {{ width: 39px; height: 39px; }}
+      .activity-robot {{ width: 48px; height: 48px; border-radius: 15px; }}
+      .activity-robot svg {{ width: 39px; height: 39px; }}
+      .changed-robot {{ width: 40px; height: 40px; border-radius: 13px; }}
+      .changed-robot svg {{ width: 32px; height: 32px; }}
       .file-inspector-hint {{ display: none; }}
     }}
   </style>
@@ -558,17 +561,12 @@ def _html_document(
     let refreshInProgress = false;
     let selectedFile = null;
     let activityTimer = null;
-    let changePulseTimer = null;
-    let changePulseResizeTimer = null;
-    let changePulseRequest = 0;
     let snapshotRequest = 0;
     let activePaths = [];
     let historyRef = "";
     let filePanelHistoryActive = false;
-    const MAX_CHANGE_PULSE_ROBOTS = 24;
-    const CHANGE_PULSE_STAGGER_MS = 30;
-    const CHANGE_PULSE_STAGGER_CAP_MS = 180;
-    const CHANGE_PULSE_LIFETIME_MS = 1500;
+    let workingTrace = graph.data[0];
+    const MAX_CHANGED_ROBOTS = 18;
     const aikiBotFace = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
       <path d="M16 4v4" stroke="#23675D" stroke-width="2.3" stroke-linecap="round"/>
       <circle cx="16" cy="3.5" r="2" fill="#E5A729"/>
@@ -687,17 +685,18 @@ def _html_document(
     }}
 
     function changedPathsForCurrentSnapshot() {{
-      const trace = graph.data[currentSnapshotIndex];
+      const trace = graph.data[liveUpdates ? 0 : currentSnapshotIndex];
       return [...new Set((trace?.customdata ?? [])
         .filter(item => item?.[4] === "file" && item?.[1] !== "unchanged")
         .map(item => item[0]))];
     }}
 
-    function showChangePulse(request) {{
-      if (request !== changePulseRequest || !fileInspector.hidden) return;
+    function positionChangedRobots() {{
+      reviewRobots.replaceChildren();
+      if (currentSnapshotIndex === 0 || !fileInspector.hidden) return;
       const changedPaths = changedPathsForCurrentSnapshot();
       if (!changedPaths.length) return;
-      const topLevelOnly = changedPaths.length > MAX_CHANGE_PULSE_ROBOTS;
+      const topLevelOnly = changedPaths.length > MAX_CHANGED_ROBOTS;
       const {{ shellBounds, visibleTiles }} = visibleTileBounds(
         candidateAnchorIds(changedPaths, topLevelOnly),
       );
@@ -706,10 +705,10 @@ def _html_document(
         visibleTiles,
         topLevelOnly,
       );
-      if (groupedAnchors.size > MAX_CHANGE_PULSE_ROBOTS) {{
+      if (groupedAnchors.size > MAX_CHANGED_ROBOTS) {{
         const entries = [...groupedAnchors];
-        const retained = entries.slice(0, MAX_CHANGE_PULSE_ROBOTS - 1);
-        const overflowPaths = entries.slice(MAX_CHANGE_PULSE_ROBOTS - 1).flatMap(([, paths]) => paths);
+        const retained = entries.slice(0, MAX_CHANGED_ROBOTS - 1);
+        const overflowPaths = entries.slice(MAX_CHANGED_ROBOTS - 1).flatMap(([, paths]) => paths);
         groupedAnchors = new Map(retained);
         const summaryAnchor = visibleTiles.has("repo:/") ? "repo:/" : retained[0]?.[0];
         if (summaryAnchor) {{
@@ -719,34 +718,19 @@ def _html_document(
           ]);
         }}
       }}
-      let index = 0;
       for (const [anchorId, paths] of groupedAnchors) {{
         const bounds = visibleTiles.get(anchorId);
         if (!bounds) continue;
-        const robot = addRobot(
+        addRobot(
           reviewRobots,
-          "change-pulse-robot",
+          "changed-robot",
           anchorId,
           paths,
           bounds,
           shellBounds,
-          `AikiBot Change Pulse: ${{paths.length}} changed ${{paths.length === 1 ? "file" : "files"}}`,
+          `AikiBot: ${{paths.length}} changed ${{paths.length === 1 ? "file" : "files"}}`,
         );
-        robot.style.setProperty(
-          "--pulse-delay",
-          `${{Math.min(index * CHANGE_PULSE_STAGGER_MS, CHANGE_PULSE_STAGGER_CAP_MS)}}ms`,
-        );
-        index += 1;
       }}
-      window.clearTimeout(changePulseTimer);
-      changePulseTimer = window.setTimeout(() => reviewRobots.replaceChildren(), CHANGE_PULSE_LIFETIME_MS);
-    }}
-
-    function scheduleChangePulse() {{
-      const request = ++changePulseRequest;
-      window.clearTimeout(changePulseTimer);
-      reviewRobots.replaceChildren();
-      window.requestAnimationFrame(() => window.requestAnimationFrame(() => showChangePulse(request)));
     }}
 
     window.aikimapSetDisplayMode = mode => {{
@@ -757,10 +741,7 @@ def _html_document(
         : {{ "margin.t": 32, "margin.r": 6, "margin.b": 6, "margin.l": 6 }}
       );
       window.requestAnimationFrame(() => Plotly.Plots.resize(graph));
-      if (!compact) {{
-        window.clearTimeout(changePulseResizeTimer);
-        changePulseResizeTimer = window.setTimeout(scheduleChangePulse, 160);
-      }}
+      window.requestAnimationFrame(positionChangedRobots);
     }};
 
     async function refreshSessionStatus() {{
@@ -804,14 +785,44 @@ def _html_document(
       if (index < 0 || index >= snapshots.length) return;
       const request = ++snapshotRequest;
       closeFilePanel();
-      const visible = snapshots.map((_, traceIndex) => traceIndex === index);
       updateSnapshotMetadata(index);
-      await Plotly.restyle(graph, {{ visible }});
+      if (liveUpdates) {{
+        let trace = workingTrace;
+        if (index !== 0) {{
+          const snapshot = snapshots[index];
+          liveStatus.textContent = "Loading commit…";
+          liveStatus.hidden = false;
+          try {{
+            const query = new URLSearchParams({{
+              kind: snapshot.kind,
+              revision: snapshot.revision,
+              branch: historyRef,
+            }});
+            const response = await apiFetch(`/api/snapshot?${{query}}`, {{ cache: "no-store" }});
+            if (!response.ok) throw new Error(`Snapshot failed (${{response.status}})`);
+            const payload = await response.json();
+            trace = payload.trace;
+          }} catch (error) {{
+            if (request === snapshotRequest) {{
+              liveStatus.textContent = "Commit unavailable — try again";
+              liveStatus.hidden = false;
+            }}
+            return;
+          }}
+        }}
+        if (request !== snapshotRequest || currentSnapshotIndex !== index) return;
+        trace.visible = true;
+        await Plotly.react(graph, [trace], graph.layout);
+      }} else {{
+        const visible = snapshots.map((_, traceIndex) => traceIndex === index);
+        await Plotly.restyle(graph, {{ visible }});
+      }}
       if (request !== snapshotRequest || currentSnapshotIndex !== index) return;
       await Plotly.Plots.resize(graph);
       if (request !== snapshotRequest || currentSnapshotIndex !== index) return;
       window.requestAnimationFrame(positionActivityRobots);
-      scheduleChangePulse();
+      window.requestAnimationFrame(positionChangedRobots);
+      liveStatus.hidden = true;
     }}
 
     function updateActivity(activity) {{
@@ -862,6 +873,7 @@ def _html_document(
         snapshots = payload.snapshots;
         updateBranchControls(payload.branches, payload.historyRef);
         stateVersion = payload.version;
+        workingTrace = payload.traces[0];
         historyStart = snapshots.findIndex(snapshot => snapshot.kind === "commit");
         historyCount = snapshots.filter(snapshot => snapshot.kind === "commit").length;
 
@@ -874,15 +886,9 @@ def _html_document(
             ? matchingIndex
             : historyStart + Math.min(currentHistoryIndex, historyCount - 1);
         }}
-        payload.traces.forEach((trace, index) => {{
-          trace.visible = index === activeIndex;
-        }});
-        snapshotRequest += 1;
-        await Plotly.react(graph, payload.traces, graph.layout);
-        closeFilePanel();
-        updateSnapshotMetadata(activeIndex);
-        window.requestAnimationFrame(positionActivityRobots);
-        if (selectBranchTip) scheduleChangePulse();
+        if (showingWorking || selectBranchTip || activeIndex !== currentSnapshotIndex) {{
+          await showSnapshot(activeIndex);
+        }}
         liveStatus.hidden = true;
       }} catch (error) {{
         liveStatus.textContent = "Live refresh unavailable — retrying";
@@ -1065,7 +1071,7 @@ def _html_document(
     activityStatus.addEventListener("click", () => {{
       const path = activePaths[0];
       if (!path) return;
-      const trace = graph.data[currentSnapshotIndex];
+      const trace = graph.data[liveUpdates ? 0 : currentSnapshotIndex];
       const fileIndex = trace.ids?.indexOf(`file:${{path}}`) ?? -1;
       const status = fileIndex >= 0 ? trace.customdata?.[fileIndex]?.[1] : "changed";
       openFilePanel(path, status);
@@ -1081,12 +1087,12 @@ def _html_document(
     window.addEventListener("resize", () => {{
       if (selectedFile && !positionFileInspector()) closeFilePanel();
       window.requestAnimationFrame(positionActivityRobots);
-      if (!document.body.classList.contains("ambient-mode")) {{
-        window.clearTimeout(changePulseResizeTimer);
-        changePulseResizeTimer = window.setTimeout(scheduleChangePulse, 160);
-      }}
+      window.requestAnimationFrame(positionChangedRobots);
     }});
-    graph.on("plotly_afterplot", () => window.requestAnimationFrame(positionActivityRobots));
+    graph.on("plotly_afterplot", () => {{
+      window.requestAnimationFrame(positionActivityRobots);
+      window.requestAnimationFrame(positionChangedRobots);
+    }});
     document.addEventListener("keydown", event => {{
       if (event.key === "Escape" && !fileInspector.hidden) closeFilePanel();
     }});
@@ -1098,7 +1104,7 @@ def _html_document(
       window.setInterval(refreshState, 2500);
       window.setInterval(refreshSessionStatus, 2500);
     }}
-    scheduleChangePulse();
+    window.requestAnimationFrame(positionChangedRobots);
   </script>
 </body>
 </html>

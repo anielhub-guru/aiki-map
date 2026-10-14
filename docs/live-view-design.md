@@ -21,13 +21,13 @@ treemap without requiring the user to rerun the command.
 
 ## Data flow
 
-1. Python reads the current working state and recent commit history.
-2. The local server embeds the initial snapshots in the first HTML response.
+1. Python reads the working state and recent commit metadata.
+2. The local server embeds only the working trace in the first HTML response.
 3. The browser sends its current state version to `/api/state` every 2.5 seconds.
 4. The server returns `304 Not Modified` when the visual state is unchanged.
-5. When the state differs, the server returns replacement Plotly traces and
-   snapshot metadata.
-6. The browser redraws immediately and retains the user's selected view.
+5. When the state differs, the server returns the working trace and snapshot metadata.
+6. History navigation requests one authenticated commit trace at a time; the
+   browser replaces the current trace and discards the preceding one.
 
 If `HEAD` changes, the server rebuilds recent history. If a refresh fails, the
 browser keeps the last valid map visible, reports the problem, and retries.
@@ -57,6 +57,8 @@ clear label, and textual patches stop after 2,000 lines or 200 KB.
 - Polling was selected over filesystem watching because a 2–3 second delay is
   acceptable and polling is simpler and more portable.
 - Responses are versioned so unchanged polls do not transfer or redraw map data.
+- Native/live mode keeps one Plotly trace in the WebView to bound document size,
+  DOM work, and memory use on large repositories.
 - The server uses Python's standard library to avoid another runtime dependency.
 - Spatial animation is deferred unless a future renderer can reliably preserve
   rectangle identity while boxes move, grow, and shrink.

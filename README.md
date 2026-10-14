@@ -161,8 +161,10 @@ so repository data remains on the local computer.
 4. Check the working state every 2.5 seconds through a local endpoint.
 5. Compare file timestamps and sizes with the preceding refresh to detect saves.
 6. Pulse and highlight files being edited, including files already marked modified.
-7. Read one validated file diff only when Show Diff is selected.
-8. Optionally wrap an agent process and expose its session state locally.
+7. Build and display one selected history map at a time, with persistent AikiBot
+   markers on the changed files.
+8. Read one validated file diff only when Show Diff is selected.
+9. Optionally wrap an agent process and expose its session state locally.
 
 Common dependency, build, cache, and editor directories are filtered from the map
 so that application structure remains visible.

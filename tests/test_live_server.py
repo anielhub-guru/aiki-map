@@ -31,6 +31,19 @@ class LiveServerTests(unittest.TestCase):
 
         self.assertIsNone(application.state_payload(application.initial_version))
 
+    def test_live_history_hydrates_only_the_requested_commit(self) -> None:
+        builder = SnapshotBuilder(self.repository)
+        application = LiveApplication(builder)
+        baseline = json.loads(application.baseline_payload)
+
+        self.assertEqual(builder._history_cache, {})
+        self.assertEqual(len(baseline["traces"]), 1)
+        revision = baseline["snapshots"][1]["revision"]
+        trace = json.loads(application.snapshot_payload("commit", revision))["trace"]
+
+        self.assertIn("app.py", trace["labels"])
+        self.assertEqual(list(builder._history_cache), [revision])
+
     def test_rendered_diff_split_keeps_javascript_newline_literal(self) -> None:
         application = LiveApplication(SnapshotBuilder(self.repository))
 
@@ -63,22 +76,18 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'id="activity-robots"', application.document)
         self.assertIn(b'activityRobots,\n          "activity-robot"', application.document)
         self.assertIn(b'id="review-robots"', application.document)
-        self.assertIn(b'reviewRobots,\n          "change-pulse-robot"', application.document)
-        self.assertIn(b"function scheduleChangePulse()", application.document)
-        self.assertIn(b"await Plotly.restyle", application.document)
+        self.assertIn(b'reviewRobots,\n          "changed-robot"', application.document)
+        self.assertIn(b"function positionChangedRobots()", application.document)
+        self.assertIn(b"await Plotly.react(graph, [trace]", application.document)
+        self.assertIn(b"/api/snapshot?", application.document)
         self.assertIn(b"request !== snapshotRequest", application.document)
         self.assertIn(b"candidateAnchorIds(changedPaths, topLevelOnly)", application.document)
         self.assertIn(b"candidateIds && !candidateIds.has(id)", application.document)
-        self.assertIn(b"request !== changePulseRequest", application.document)
         self.assertIn(b"reviewRobots.replaceChildren()", application.document)
-        self.assertIn(b"opacity: 1; scale: .72", application.document)
-        self.assertIn(b"changePulseResizeTimer", application.document)
-        self.assertIn(b"setTimeout(scheduleChangePulse, 160)", application.document)
-        self.assertNotIn(b"changePulseRequest += 1", application.document)
-        self.assertIn(b"AikiBot Change Pulse", application.document)
-        self.assertIn(b"MAX_CHANGE_PULSE_ROBOTS = 24", application.document)
+        self.assertIn(b"MAX_CHANGED_ROBOTS = 18", application.document)
         self.assertIn(b'item?.[4] === "file" && item?.[1] !== "unchanged"', application.document)
-        self.assertIn(b"if (selectBranchTip) scheduleChangePulse()", application.document)
+        self.assertNotIn(b"change-pulse", application.document)
+        self.assertNotIn(b"scheduleChangePulse", application.document)
         self.assertIn(b"pointer-events: none", application.document)
         self.assertIn(b'candidates.push(`dir:${parts.join("/")}`)', application.document)
         self.assertIn(b'paths.join("\\n")', application.document)
@@ -188,7 +197,13 @@ class LiveServerTests(unittest.TestCase):
 
         self.assertEqual(payload["historyRef"], "refs/heads/feature/map")
         self.assertEqual(payload["snapshots"][1]["message"], "Add feature file")
-        self.assertIn("feature.py", payload["traces"][1]["labels"])
+        self.assertEqual(len(payload["traces"]), 1)
+        feature_trace = json.loads(application.snapshot_payload(
+            "commit",
+            payload["snapshots"][1]["revision"],
+            "refs/heads/feature/map",
+        ))["trace"]
+        self.assertIn("feature.py", feature_trace["labels"])
         self.assertNotIn("feature.py", payload["traces"][0]["labels"])
         self.assertEqual([branch["name"] for branch in payload["branches"] if branch["current"]], [current])
         self.assertIn("origin/feature/map", [branch["name"] for branch in payload["branches"]])

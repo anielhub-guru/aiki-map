@@ -26,7 +26,8 @@ class SnapshotBuilder:
         self.commit_limit = commit_limit
         self._head_hash = ""
         self._head_files: list[str] = []
-        self._history: list[VisualizationSnapshot] = []
+        self._commits: list[CommitInfo] = []
+        self._history_cache: dict[str, VisualizationSnapshot] = {}
         self._working_change_key: tuple[object, ...] | None = None
         self._working_nodes: list[HierarchyNode] | None = None
         self._working_signatures: dict[str, tuple[int, int] | None] | None = None
@@ -34,28 +35,39 @@ class SnapshotBuilder:
         self._activity_revision = 0
         self._activity_expires_at = 0.0
         self._branch_history_tip = ""
-        self._branch_history: list[VisualizationSnapshot] = []
+        self._branch_commits: list[CommitInfo] = []
 
-    def load(self, history_ref: str = "") -> list[VisualizationSnapshot]:
-        if not self._history:
+    def load(
+        self,
+        history_ref: str = "",
+        hydrate_history: bool = True,
+    ) -> list[VisualizationSnapshot]:
+        if not self._commits:
             self._reload_history()
         else:
             latest_commit = get_latest_commit(self.repository)
             if latest_commit.full_hash != self._head_hash:
                 self._reload_history()
 
-        head_commit = self._history[0].commit
+        head_commit = self._commits[0]
         branches = get_branches(self.repository)
         selected_branch = next((branch for branch in branches if branch.ref == history_ref), None)
         history_ref = selected_branch.ref if selected_branch and not selected_branch.current else ""
-        history = self._history
+        commits = self._commits
         if history_ref:
             if selected_branch.tip != self._branch_history_tip:
-                self._branch_history = self._build_history(
-                    get_recent_commits(self.repository, self.commit_limit, selected_branch.tip)
+                self._branch_commits = get_recent_commits(
+                    self.repository,
+                    self.commit_limit,
+                    selected_branch.tip,
                 )
                 self._branch_history_tip = selected_branch.tip
-            history = self._branch_history
+            commits = self._branch_commits
+        history = [
+            self._snapshot_for_commit(commit) if hydrate_history
+            else VisualizationSnapshot(commit=commit, nodes=[])
+            for commit in commits
+        ]
         working_changes = get_working_changes(self.repository)
         working_change_key = tuple(working_changes)
         if self._working_nodes is None or working_change_key != self._working_change_key:
@@ -100,6 +112,29 @@ class SnapshotBuilder:
         )
         return [working_snapshot, *history]
 
+    def load_snapshot(
+        self,
+        kind: str,
+        revision: str,
+        history_ref: str = "",
+    ) -> VisualizationSnapshot:
+        snapshots = self.load(history_ref, hydrate_history=False)
+        selected = next(
+            (
+                snapshot
+                for snapshot in snapshots
+                if snapshot.kind == kind and snapshot.commit.full_hash == revision
+            ),
+            None,
+        )
+        if selected is None:
+            raise ValueError("The selected snapshot is no longer available")
+        if kind == "working":
+            return selected
+        if kind != "commit":
+            raise ValueError("Unsupported snapshot kind")
+        return self._snapshot_for_commit(selected.commit)
+
     def _file_signatures(
         self,
         nodes: list[HierarchyNode],
@@ -119,29 +154,30 @@ class SnapshotBuilder:
         commits = get_recent_commits(self.repository, limit=self.commit_limit)
         head_commit = commits[0]
         head_files = get_tracked_files(self.repository, head_commit.full_hash)
-        history = self._build_history(commits)
 
         self._head_hash = head_commit.full_hash
         self._head_files = head_files
-        self._history = history
+        self._commits = commits
+        self._history_cache = {
+            revision: snapshot
+            for revision, snapshot in self._history_cache.items()
+            if any(commit.full_hash == revision for commit in commits)
+        }
         self._working_change_key = None
         self._working_nodes = None
 
-    def _build_history(self, commits: list[CommitInfo]) -> list[VisualizationSnapshot]:
-        history = []
-
-        for commit in commits:
+    def _snapshot_for_commit(self, commit: CommitInfo) -> VisualizationSnapshot:
+        snapshot = self._history_cache.get(commit.full_hash)
+        if snapshot is None:
             tracked_files = get_tracked_files(self.repository, commit.full_hash)
             changes = get_changes_for_commit(self.repository, commit.full_hash)
-            history.append(
-                VisualizationSnapshot(
-                    commit=commit,
-                    nodes=build_hierarchy(
-                        self.repository.name,
-                        tracked_files,
-                        changes,
-                    ),
-                )
+            snapshot = VisualizationSnapshot(
+                commit=commit,
+                nodes=build_hierarchy(
+                    self.repository.name,
+                    tracked_files,
+                    changes,
+                ),
             )
-
-        return history
+            self._history_cache[commit.full_hash] = snapshot
+        return snapshot

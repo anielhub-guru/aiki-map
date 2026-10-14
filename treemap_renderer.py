@@ -338,16 +338,16 @@ def _html_document(
     .activity-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
     .activity-robot svg, .change-pulse-robot svg {{ width: 46px; height: 46px; overflow: visible; }}
     .activity-robot .robot-eyes {{ animation: robot-blink 3.2s ease-in-out infinite; transform-origin: center; }}
-    .change-pulse-robot {{ opacity: 0; animation: change-pulse-pop 900ms cubic-bezier(.2, .85, .3, 1) var(--pulse-delay, 0ms) both; }}
+    .change-pulse-robot {{ opacity: 0; animation: change-pulse-pop 1250ms cubic-bezier(.2, .85, .3, 1) var(--pulse-delay, 0ms) both; }}
     .change-pulse-robot[data-fallback="true"] {{ border-color: #FFF4C7; box-shadow: 0 0 0 3px #D99B16, 0 5px 18px rgba(19, 79, 71, .4); }}
     @keyframes robot-bob {{ 0%, 100% {{ translate: 0 0; }} 50% {{ translate: 0 -3px; }} }}
     @keyframes robot-blink {{ 0%, 44%, 52%, 100% {{ transform: scaleY(1); }} 48% {{ transform: scaleY(.15); }} }}
-    @keyframes change-pulse-pop {{ 0% {{ opacity: 0; scale: .62; }} 22%, 68% {{ opacity: 1; scale: 1.08; }} 100% {{ opacity: 0; scale: .92; }} }}
+    @keyframes change-pulse-pop {{ 0% {{ opacity: 1; scale: .72; }} 18%, 72% {{ opacity: 1; scale: 1.1; }} 100% {{ opacity: 0; scale: .94; }} }}
     @media (prefers-reduced-motion: reduce) {{
       .activity-robot, .activity-robot .robot-eyes {{ animation: none; }}
-      .change-pulse-robot {{ animation: change-pulse-fade 700ms ease var(--pulse-delay, 0ms) both; }}
+      .change-pulse-robot {{ animation: change-pulse-fade 1100ms ease var(--pulse-delay, 0ms) both; }}
     }}
-    @keyframes change-pulse-fade {{ 0%, 100% {{ opacity: 0; }} 18%, 72% {{ opacity: 1; }} }}
+    @keyframes change-pulse-fade {{ 0%, 72% {{ opacity: 1; }} 100% {{ opacity: 0; }} }}
     /*
       Legacy fixed sidebar retained for a possible design reversal.
       .file-panel {{ position: fixed; z-index: 20; top: 20px; right: 20px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; padding: 22px; border: 1px solid #CBD5E1; border-radius: 14px; background: #FFFFFF; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }}
@@ -559,14 +559,16 @@ def _html_document(
     let selectedFile = null;
     let activityTimer = null;
     let changePulseTimer = null;
+    let changePulseResizeTimer = null;
     let changePulseRequest = 0;
+    let snapshotRequest = 0;
     let activePaths = [];
     let historyRef = "";
     let filePanelHistoryActive = false;
     const MAX_CHANGE_PULSE_ROBOTS = 24;
-    const CHANGE_PULSE_STAGGER_MS = 45;
-    const CHANGE_PULSE_STAGGER_CAP_MS = 360;
-    const CHANGE_PULSE_LIFETIME_MS = 1300;
+    const CHANGE_PULSE_STAGGER_MS = 30;
+    const CHANGE_PULSE_STAGGER_CAP_MS = 180;
+    const CHANGE_PULSE_LIFETIME_MS = 1500;
     const aikiBotFace = `<svg viewBox="0 0 32 32" role="presentation" aria-hidden="true">
       <path d="M16 4v4" stroke="#23675D" stroke-width="2.3" stroke-linecap="round"/>
       <circle cx="16" cy="3.5" r="2" fill="#E5A729"/>
@@ -603,13 +605,34 @@ def _html_document(
     }}
     updateBranchControls({branches_json}, "");
 
-    function visibleTileBounds() {{
+    function anchorCandidates(path, topLevelOnly = false) {{
+      const parts = path.split("/");
+      const candidates = [];
+      if (topLevelOnly) {{
+        if (parts.length > 1) candidates.push(`dir:${{parts[0]}}`);
+      }} else {{
+        candidates.push(`file:${{path}}`);
+        parts.pop();
+        while (parts.length) {{
+          candidates.push(`dir:${{parts.join("/")}}`);
+          parts.pop();
+        }}
+      }}
+      candidates.push("repo:/");
+      return candidates;
+    }}
+
+    function candidateAnchorIds(paths, topLevelOnly = false) {{
+      return new Set(paths.flatMap(path => anchorCandidates(path, topLevelOnly)));
+    }}
+
+    function visibleTileBounds(candidateIds = null) {{
       const shellBounds = chartShell.getBoundingClientRect();
       const visibleTiles = new Map();
       for (const slice of graph.querySelectorAll("g.slice")) {{
         const datum = slice.__data__;
         const id = datum?.id ?? datum?.data?.id;
-        if (!id) continue;
+        if (!id || (candidateIds && !candidateIds.has(id))) continue;
         const tile = slice.querySelector("rect, path.surface") ?? slice;
         const bounds = tile.getBoundingClientRect();
         if (!bounds.width || !bounds.height) continue;
@@ -621,19 +644,7 @@ def _html_document(
     function groupPathsByVisibleAnchor(paths, visibleTiles, topLevelOnly = false) {{
       const groupedAnchors = new Map();
       for (const path of paths) {{
-        const parts = path.split("/");
-        const candidates = [];
-        if (topLevelOnly) {{
-          if (parts.length > 1) candidates.push(`dir:${{parts[0]}}`);
-        }} else {{
-          candidates.push(`file:${{path}}`);
-          parts.pop();
-          while (parts.length) {{
-            candidates.push(`dir:${{parts.join("/")}}`);
-            parts.pop();
-          }}
-        }}
-        candidates.push("repo:/");
+        const candidates = anchorCandidates(path, topLevelOnly);
         const anchorId = candidates.find(candidate => visibleTiles.has(candidate));
         if (!anchorId) continue;
         const anchoredPaths = groupedAnchors.get(anchorId) ?? [];
@@ -659,7 +670,7 @@ def _html_document(
     function positionActivityRobots() {{
       activityRobots.replaceChildren();
       if (currentSnapshotIndex !== 0 || !activePaths.length) return;
-      const {{ shellBounds, visibleTiles }} = visibleTileBounds();
+      const {{ shellBounds, visibleTiles }} = visibleTileBounds(candidateAnchorIds(activePaths));
       const groupedAnchors = groupPathsByVisibleAnchor(activePaths, visibleTiles);
       for (const [anchorId, paths] of groupedAnchors) {{
         const bounds = visibleTiles.get(anchorId);
@@ -686,11 +697,14 @@ def _html_document(
       if (request !== changePulseRequest || !fileInspector.hidden) return;
       const changedPaths = changedPathsForCurrentSnapshot();
       if (!changedPaths.length) return;
-      const {{ shellBounds, visibleTiles }} = visibleTileBounds();
+      const topLevelOnly = changedPaths.length > MAX_CHANGE_PULSE_ROBOTS;
+      const {{ shellBounds, visibleTiles }} = visibleTileBounds(
+        candidateAnchorIds(changedPaths, topLevelOnly),
+      );
       let groupedAnchors = groupPathsByVisibleAnchor(
         changedPaths,
         visibleTiles,
-        changedPaths.length > MAX_CHANGE_PULSE_ROBOTS,
+        topLevelOnly,
       );
       if (groupedAnchors.size > MAX_CHANGE_PULSE_ROBOTS) {{
         const entries = [...groupedAnchors];
@@ -743,7 +757,10 @@ def _html_document(
         : {{ "margin.t": 32, "margin.r": 6, "margin.b": 6, "margin.l": 6 }}
       );
       window.requestAnimationFrame(() => Plotly.Plots.resize(graph));
-      if (!compact) scheduleChangePulse();
+      if (!compact) {{
+        window.clearTimeout(changePulseResizeTimer);
+        changePulseResizeTimer = window.setTimeout(scheduleChangePulse, 160);
+      }}
     }};
 
     async function refreshSessionStatus() {{
@@ -783,13 +800,16 @@ def _html_document(
       }}
     }}
 
-    function showSnapshot(index) {{
+    async function showSnapshot(index) {{
       if (index < 0 || index >= snapshots.length) return;
+      const request = ++snapshotRequest;
       closeFilePanel();
       const visible = snapshots.map((_, traceIndex) => traceIndex === index);
-      Plotly.restyle(graph, {{ visible }});
       updateSnapshotMetadata(index);
-      Plotly.Plots.resize(graph);
+      await Plotly.restyle(graph, {{ visible }});
+      if (request !== snapshotRequest || currentSnapshotIndex !== index) return;
+      await Plotly.Plots.resize(graph);
+      if (request !== snapshotRequest || currentSnapshotIndex !== index) return;
       window.requestAnimationFrame(positionActivityRobots);
       scheduleChangePulse();
     }}
@@ -857,6 +877,7 @@ def _html_document(
         payload.traces.forEach((trace, index) => {{
           trace.visible = index === activeIndex;
         }});
+        snapshotRequest += 1;
         await Plotly.react(graph, payload.traces, graph.layout);
         closeFilePanel();
         updateSnapshotMetadata(activeIndex);
@@ -1059,10 +1080,11 @@ def _html_document(
     }});
     window.addEventListener("resize", () => {{
       if (selectedFile && !positionFileInspector()) closeFilePanel();
-      changePulseRequest += 1;
-      window.clearTimeout(changePulseTimer);
-      reviewRobots.replaceChildren();
       window.requestAnimationFrame(positionActivityRobots);
+      if (!document.body.classList.contains("ambient-mode")) {{
+        window.clearTimeout(changePulseResizeTimer);
+        changePulseResizeTimer = window.setTimeout(scheduleChangePulse, 160);
+      }}
     }});
     graph.on("plotly_afterplot", () => window.requestAnimationFrame(positionActivityRobots));
     document.addEventListener("keydown", event => {{

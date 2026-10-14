@@ -65,8 +65,16 @@ class LiveServerTests(unittest.TestCase):
         self.assertIn(b'id="review-robots"', application.document)
         self.assertIn(b'reviewRobots,\n          "change-pulse-robot"', application.document)
         self.assertIn(b"function scheduleChangePulse()", application.document)
+        self.assertIn(b"await Plotly.restyle", application.document)
+        self.assertIn(b"request !== snapshotRequest", application.document)
+        self.assertIn(b"candidateAnchorIds(changedPaths, topLevelOnly)", application.document)
+        self.assertIn(b"candidateIds && !candidateIds.has(id)", application.document)
         self.assertIn(b"request !== changePulseRequest", application.document)
         self.assertIn(b"reviewRobots.replaceChildren()", application.document)
+        self.assertIn(b"opacity: 1; scale: .72", application.document)
+        self.assertIn(b"changePulseResizeTimer", application.document)
+        self.assertIn(b"setTimeout(scheduleChangePulse, 160)", application.document)
+        self.assertNotIn(b"changePulseRequest += 1", application.document)
         self.assertIn(b"AikiBot Change Pulse", application.document)
         self.assertIn(b"MAX_CHANGE_PULSE_ROBOTS = 24", application.document)
         self.assertIn(b'item?.[4] === "file" && item?.[1] !== "unchanged"', application.document)
@@ -131,6 +139,22 @@ class LiveServerTests(unittest.TestCase):
             first["activity"]["revision"],
         )
         self.assertIn("● app.py", second["traces"][0]["labels"])
+
+    def test_live_signatures_track_only_changed_files_and_detect_deletion(self) -> None:
+        builder = SnapshotBuilder(self.repository)
+
+        initial = builder.load()
+        self.assertEqual(builder._working_signatures, {})
+        self.assertEqual(initial[0].activity_paths, ())
+        cached = builder.load()
+        self.assertIs(cached[0].nodes, initial[0].nodes)
+
+        (self.repository / "app.py").unlink()
+        deleted = builder.load()
+
+        self.assertEqual(builder._working_signatures, {"app.py": None})
+        self.assertEqual(deleted[0].activity_paths, ("app.py",))
+        self.assertIsNot(deleted[0].nodes, initial[0].nodes)
 
     def test_new_commit_refreshes_history(self) -> None:
         builder = SnapshotBuilder(self.repository)

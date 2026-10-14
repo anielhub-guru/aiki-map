@@ -27,6 +27,8 @@ class SnapshotBuilder:
         self._head_hash = ""
         self._head_files: list[str] = []
         self._history: list[VisualizationSnapshot] = []
+        self._working_change_key: tuple[object, ...] | None = None
+        self._working_nodes: list[HierarchyNode] | None = None
         self._working_signatures: dict[str, tuple[int, int] | None] | None = None
         self._activity_paths: tuple[str, ...] = ()
         self._activity_revision = 0
@@ -55,22 +57,28 @@ class SnapshotBuilder:
                 self._branch_history_tip = selected_branch.tip
             history = self._branch_history
         working_changes = get_working_changes(self.repository)
-        working_nodes = build_hierarchy(
-            self.repository.name,
-            self._head_files,
-            working_changes,
-        )
+        working_change_key = tuple(working_changes)
+        if self._working_nodes is None or working_change_key != self._working_change_key:
+            self._working_nodes = build_hierarchy(
+                self.repository.name,
+                self._head_files,
+                working_changes,
+            )
+            self._working_change_key = working_change_key
+        working_nodes = self._working_nodes
         working_change_count = sum(
             node.kind == "file" and node.status != "unchanged"
             for node in working_nodes
         )
         signatures = self._file_signatures(working_nodes)
         if self._working_signatures is not None:
+            missing = object()
             changed_paths = tuple(
                 sorted(
                     path
-                    for path, signature in signatures.items()
-                    if self._working_signatures.get(path) != signature
+                    for path in signatures.keys() | self._working_signatures.keys()
+                    if self._working_signatures.get(path, missing)
+                    != signatures.get(path, missing)
                 )
             )
             if changed_paths:
@@ -98,7 +106,7 @@ class SnapshotBuilder:
     ) -> dict[str, tuple[int, int] | None]:
         signatures = {}
         for node in nodes:
-            if node.kind != "file":
+            if node.kind != "file" or node.status == "unchanged":
                 continue
             try:
                 stat = (self.repository / node.path).stat()
@@ -116,6 +124,8 @@ class SnapshotBuilder:
         self._head_hash = head_commit.full_hash
         self._head_files = head_files
         self._history = history
+        self._working_change_key = None
+        self._working_nodes = None
 
     def _build_history(self, commits: list[CommitInfo]) -> list[VisualizationSnapshot]:
         history = []

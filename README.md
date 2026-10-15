@@ -1,11 +1,8 @@
 # Aiki Map
 
-See what changed in your AI-assisted coding workflow—at a glance.
-
-AI coding tools can modify more of a repository than you expected. Aiki Map turns
-your current working changes and recent Git commits into an interactive visual
-map, making it easier to spot which files changed and where they sit in the
-project before you continue building.
+AikiMap is a read-only repository map for coding-agent sessions. It shows
+working-tree changes and recent commits as a treemap, updates as files are
+saved, and lets you inspect file diffs without changing Git state.
 
 ![Aiki Map visualizing a modified file in a mock repository](docs/aiki-map-demo.png)
 
@@ -15,12 +12,16 @@ project before you continue building.
 - Folder size reflects the number of files it contains—not lines of code or complexity.
 - Working Changes opens first and includes staged, unstaged, and untracked files.
 - Changed folders are highlighted so you can locate affected areas quickly.
+- A live AikiBot marker shows the file currently being edited. In commit history,
+  persistent AikiBot markers identify the files changed by the selected commit.
 - Commit History lets you inspect up to 10 recent commits.
 - The branch label identifies the current checkout. History branch lets you
   browse local and fetched remote branches without switching your Git checkout;
   Working Changes always shows the current checkout.
 - Selecting a file turns its box into an inspector showing exact state and line
   totals; Show Diff loads its read-only patch inside that box on demand.
+- Live and native modes keep one history map loaded at a time to reduce WebView
+  work on large repositories.
 
 | Colour | Meaning |
 | --- | --- |
@@ -49,7 +50,7 @@ When the local checkout changes, update the installed command with:
 uv tool install --force --reinstall-package aikimap /path/to/aiki-map
 ```
 
-## Launch with an AI coding agent
+## Launch with a coding agent
 
 For Codex IDE, install the AikiMap skill once after installing the command:
 

@@ -5,13 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aikimap"
 version = "0.1.0"
-description = "Read-only visual maps for AI-assisted Git workflows"
+description = "Live, read-only Git maps for coding-agent sessions"
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["git", "code-review", "repository-visualization", "coding-agents"]
 dependencies = [
   "plotly>=6.0,<7.0",
   "pywebview>=5.0,<7.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/anielhub-guru/aiki-map"
+Issues = "https://github.com/anielhub-guru/aiki-map/issues"
 
 [project.scripts]
 aikimap = "aikimap_cli:main"

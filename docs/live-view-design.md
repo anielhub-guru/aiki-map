@@ -2,12 +2,13 @@
 
 ## Purpose
 
-V0.2 keeps Aiki Map visible beside an AI coding tool and updates the working
-treemap without requiring the user to rerun the command.
+AikiMap stays visible beside a coding agent and updates the working treemap
+without requiring the user to rerun the command.
 
 ## Boundaries
 
-- The terminal remains the launch point.
+- Codex can launch AikiMap through the installed `$aikimap` skill. Other IDEs
+  can run `aikimap ide --detach`; terminal agents can use wrapper commands.
 - The server binds only to `127.0.0.1`.
 - Git access remains read-only.
 - The browser checks for changes every 2.5 seconds.
@@ -15,9 +16,8 @@ treemap without requiring the user to rerun the command.
 - The existing standalone output remains available through `--static`.
 - Native agent sessions open in a compact ambient mode. Review expands the same
   local interface rather than opening a second application surface.
-- There are no animations. Plotly does not smoothly interpolate treemap
-  geometry, and substitute fades do not serve the intended interaction.
-- Codex and plugin integration remain outside V0.2.
+- Treemap geometry does not animate. The live-edit AikiBot uses a small motion
+  cue; commit-history AikiBot markers remain static and visible.
 
 ## Data flow
 
